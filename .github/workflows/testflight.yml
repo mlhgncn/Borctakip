@@ -43,7 +43,6 @@ jobs:
           npm install --legacy-peer-deps
           npm install ajv@^8.0.0 ajv-keywords@^5.0.0 --save-dev --legacy-peer-deps
 
-      # ✨ BURAYI GÜNCELLEDİK: CI=false vererek ESLint uyarılarının build'ı baltalamasını engelliyoruz
       - name: Build Web Assets
         env:
           CI: false
@@ -56,24 +55,11 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
-      - name: Install CocoaPods
+      # 🔍 DEDEKTİF ADIMI: Podfile tam olarak nerede, listeliyoruz
+      - name: Find Podfile Location
         run: |
-          cd ios/App
-          pod install --repo-update
-          cd ../..
-
-      - name: Install Ruby Gems (Fastlane)
-        run: bundle install
-
-      - name: Build and upload to TestFlight
-        env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
-          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-          FASTLANE_APPLE_ID: ${{ secrets.FASTLANE_APPLE_ID }}
-          APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
-          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          BUNDLE_ID: com.borctakip.mobile.app
-          MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
-        run: bundle exec fastlane ios release
+          echo "=== IOS KLASÖRÜNÜN İÇİ ==="
+          ls -la ios || true
+          echo ""
+          echo "=== TÜM DIZINLERDE PODFILE ARAMASI ==="
+          find . -name "Podfile"
