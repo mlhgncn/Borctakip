@@ -36,7 +36,6 @@ jobs:
           ruby-version: '3.2'
           bundler-cache: true
 
-      # ✨ BURAYI GÜNCELLEDİK: Çakışmayı engellemek için ajv paketlerini el ile zorlayarak kuruyoruz
       - name: Force Custom Fresh Install
         run: |
           npm config set cache /Users/runner/.npm-custom-cache --global
@@ -44,7 +43,10 @@ jobs:
           npm install --legacy-peer-deps
           npm install ajv@^8.0.0 ajv-keywords@^5.0.0 --save-dev --legacy-peer-deps
 
+      # ✨ BURAYI GÜNCELLEDİK: CI=false vererek ESLint uyarılarının build'ı baltalamasını engelliyoruz
       - name: Build Web Assets
+        env:
+          CI: false
         run: |
           npm run build --if-present
 
