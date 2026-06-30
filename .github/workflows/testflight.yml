@@ -1,66 +1,75 @@
-name: Build and Deploy to TestFlight
+name: TestFlight
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
-
-permissions:
-  contents: write
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
-  build:
+  ios:
+    permissions:
+      contents: write
     runs-on: macos-latest
-    environment: production
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Select Latest Available Xcode
+        run: |
+          if [ -d "/Applications/Xcode_26.5.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+          else
+            LATEST_XCODE=$(ls -d /Applications/Xcode*.app | tail -n 1)
+            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
+          fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 💥 GİZLİ SİLAH: Standart setup-node yerine Volta kullanarak macOS'a zorla Node 22 kuruyoruz.
+      # Bu sayede sistem hiçbir şekilde Node 18'e geri dönemez.
+      - name: Setup Volta (Enforce Node 22 globally)
+        uses: volta-cli/action@v4
         with:
-          node-version: '18'
+          node-version: '22'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build React app
-        run: npm run build
-
-      - name: Setup Ruby
+      - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.2
+          ruby-version: '3.2'
           bundler-cache: true
-          working-directory: 'ios/App'
 
-      - name: Setup Capacitor and sync iOS
+      # GitHub'ın gizli 'npm ci' önbelleğini ve yerel lock uyuşmazlığını tamamen yok ediyoruz
+      - name: Force Custom Fresh Install
         run: |
-          npm install -g @capacitor/cli
-          npx cap sync ios
+          npm config set cache /Users/runner/.npm-custom-cache --global
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps
 
+      # Capacitor çıktı senkronizasyonu
+      - name: Capacitor Sync
+        run: npx cap sync ios
+
+      # iOS CocoaPods kurulumu
       - name: Install CocoaPods
-        run: cd ios/App && pod install
-
-      - name: Configure git for match
         run: |
-          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          cd ios/App
+          pod install --repo-update
+          cd ../..
 
-      - name: Setup Fastlane
-        run: cd ios/App && gem install fastlane
+      - name: Install Ruby Gems (Fastlane)
+        run: bundle install
 
-      - name: Deploy to TestFlight
-        run: cd ios/App && bundle exec fastlane ios release
+      # Derleme ve TestFlight aşaması
+      - name: Build and upload to TestFlight
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-          FASTLANE_USER: ${{ secrets.FASTLANE_APPLE_ID }}
-          FASTLANE_PASSWORD: ${{ secrets.FASTLANE_PASSWORD }}
-          FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD: ${{ secrets.FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD }}
+          FASTLANE_APPLE_ID: ${{ secrets.FASTLANE_APPLE_ID }}
           APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
-          BUNDLE_ID: com.borctakip.mobile.app
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          BUNDLE_ID: com.borctakip.mobile.app
+          MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
+        run: bundle exec fastlane ios release
