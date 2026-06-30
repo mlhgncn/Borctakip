@@ -36,25 +36,24 @@ jobs:
           ruby-version: '3.2'
           bundler-cache: true
 
+      # ✨ BURAYI GÜNCELLEDİK: Çakışmayı engellemek için ajv paketlerini el ile zorlayarak kuruyoruz
       - name: Force Custom Fresh Install
         run: |
           npm config set cache /Users/runner/.npm-custom-cache --global
           rm -rf node_modules package-lock.json
           npm install --legacy-peer-deps
+          npm install ajv@^8.0.0 ajv-keywords@^5.0.0 --save-dev --legacy-peer-deps
 
-      # ✨ KRİTİK ADIM: Önce projenin web derlemesini yapıyoruz (dist/ veya build/ klasörü oluşsun diye)
       - name: Build Web Assets
         run: |
           npm run build --if-present
 
-      # ✨ KRİTİK ADIM: Eski Flutter'dan kalan ios klasörünü silip, Capacitor'ın sıfırdan Podfile içeren temiz ios klasörü üretmesini sağlıyoruz
       - name: Regenerate Capacitor iOS Project
         run: |
           rm -rf ios
           npx cap add ios
           npx cap sync ios
 
-      # Artık sıfırdan ve hatasız üretilen Podfile'ı sorunsuz kurabiliriz
       - name: Install CocoaPods
         run: |
           cd ios/App
