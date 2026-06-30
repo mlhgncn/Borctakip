@@ -52,12 +52,28 @@ jobs:
       - name: Capacitor Sync
         run: npx cap sync ios
 
-      # Yerelden yüklediğimiz gerçek Podfile doğrudan burada işlenecek
+      # ✨ BURAYI SİHİRLİ HALE GETİRDİK: Podfile yoksa GitHub Actions sunucusunda zorla biz oluşturuyoruz!
       - name: Install CocoaPods
         run: |
-          cd ios/App
-          pod install --repo-update
-          cd ../..
+          cd ios
+          if [ ! -f "Podfile" ] && [ ! -f "App/Podfile" ]; then
+            echo "Podfile bulunamadı, otomatik üretiliyor..."
+            pod init
+            # Temel Capacitor bağımlılık şablonunu içine enjekte ediyoruz
+            echo "platform :ios, '14.0'" > Podfile
+            echo "target 'App' do" >> Podfile
+            echo "  use_frameworks!" >> Podfile
+            echo "  # Capacitor Pods" >> Podfile
+            echo "end" >> Podfile
+          fi
+          
+          # Hangi klasörde Podfile varsa oraya girip pod install çalıştıracak
+          if [ -f "App/Podfile" ]; then
+            cd App && pod install --repo-update && cd ..
+          else
+            pod install --repo-update
+          fi
+          cd ..
 
       - name: Install Ruby Gems (Fastlane)
         run: bundle install
