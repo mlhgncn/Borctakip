@@ -42,15 +42,24 @@ jobs:
           rm -rf node_modules package-lock.json
           npm install --legacy-peer-deps
 
-      - name: Capacitor Sync
-        run: npx cap sync ios
+      # ✨ KRİTİK ADIM: Önce projenin web derlemesini yapıyoruz (dist/ veya build/ klasörü oluşsun diye)
+      - name: Build Web Assets
+        run: |
+          npm run build --if-present
 
-      # ✨ BURAYI DÜZELTTİK: Podfile doğrudan 'ios' altında olduğu için cd ios yapıyoruz
+      # ✨ KRİTİK ADIM: Eski Flutter'dan kalan ios klasörünü silip, Capacitor'ın sıfırdan Podfile içeren temiz ios klasörü üretmesini sağlıyoruz
+      - name: Regenerate Capacitor iOS Project
+        run: |
+          rm -rf ios
+          npx cap add ios
+          npx cap sync ios
+
+      # Artık sıfırdan ve hatasız üretilen Podfile'ı sorunsuz kurabiliriz
       - name: Install CocoaPods
         run: |
-          cd ios
+          cd ios/App
           pod install --repo-update
-          cd ..
+          cd ../..
 
       - name: Install Ruby Gems (Fastlane)
         run: bundle install
