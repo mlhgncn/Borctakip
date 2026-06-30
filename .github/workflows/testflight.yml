@@ -25,11 +25,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Eski hayalet adımların çalışmadığından emin olmak için buraya özel bir isim veriyoruz
-      - name: Verify Fresh Setup
-        run: echo "=== KUSURSUZ VE YENI WORKFLOW BASLADI ==="
-
-       Tarayıcı önbelleğini kırmak için Volta ile Node 22 çakıyoruz
       - name: Setup Volta (Enforce Node 22 globally)
         uses: volta-cli/action@v4
         with:
@@ -54,23 +49,13 @@ jobs:
         run: |
           npm run build --if-present
 
-      - name: Recreate iOS Directory on Runner
-        run: |
-          rm -rf ios
-          npx cap add ios
-          npx cap sync ios
+      - name: Capacitor Sync
+        run: npx cap sync ios
 
-      - name: Execute Smart Pod Install
+      # Klasör zaten repoda hazır geldiği için doğrudan kuruluma geçiyor
+      - name: Install CocoaPods
         run: |
           cd ios/App
-          if [ ! -f "Podfile" ]; then
-            echo "Zorunlu Podfile olusturuluyor..."
-            pod init
-            echo "platform :ios, '14.0'" > Podfile
-            echo "target 'App' do" >> Podfile
-            echo "  use_frameworks!" >> Podfile
-            echo "end" >> Podfile
-          fi
           pod install --repo-update
           cd ../..
 
