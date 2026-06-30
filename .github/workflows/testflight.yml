@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - master
 
 jobs:
   ios:
@@ -26,8 +25,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 💥 GİZLİ SİLAH: Standart setup-node yerine Volta kullanarak macOS'a zorla Node 22 kuruyoruz.
-      # Bu sayede sistem hiçbir şekilde Node 18'e geri dönemez.
       - name: Setup Volta (Enforce Node 22 globally)
         uses: volta-cli/action@v4
         with:
@@ -39,28 +36,25 @@ jobs:
           ruby-version: '3.2'
           bundler-cache: true
 
-      # GitHub'ın gizli 'npm ci' önbelleğini ve yerel lock uyuşmazlığını tamamen yok ediyoruz
       - name: Force Custom Fresh Install
         run: |
           npm config set cache /Users/runner/.npm-custom-cache --global
           rm -rf node_modules package-lock.json
           npm install --legacy-peer-deps
 
-      # Capacitor çıktı senkronizasyonu
       - name: Capacitor Sync
         run: npx cap sync ios
 
-      # iOS CocoaPods kurulumu
+      # ✨ BURAYI DÜZELTTİK: Podfile doğrudan 'ios' altında olduğu için cd ios yapıyoruz
       - name: Install CocoaPods
         run: |
-          cd ios/App
+          cd ios
           pod install --repo-update
-          cd ../..
+          cd ..
 
       - name: Install Ruby Gems (Fastlane)
         run: bundle install
 
-      # Derleme ve TestFlight aşaması
       - name: Build and upload to TestFlight
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
