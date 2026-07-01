@@ -3,6 +3,9 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :release do
+    # GitHub Actions ortamında keychain kilitlenmelerini (sonsuz beklemeyi) önler
+    setup_ci
+
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_API_KEY_ISSUER_ID"],
@@ -35,12 +38,12 @@ platform :ios do
     )
 
     build_app(
-  workspace: "App.xcworkspace",
-  scheme: "App",
-  export_method: "app-store",
-  # xcargs'ı düz bir string olarak vererek Fastlane'in hata veren metodunu atlatıyoruz
-  xcargs: "PROVISIONING_PROFILE_SPECIFIER='match AppStore com.borctakip.mobile.app 1782849412'"
-)
+      workspace: "App.xcworkspace",
+      scheme: "App",
+      export_method: "app-store",
+      # Hem profili dikte ediyoruz hem de team_id ekleyerek onay pencerelerini tamamen bypass ediyoruz
+      xcargs: "PROVISIONING_PROFILE_SPECIFIER='match AppStore com.borctakip.mobile.app 1782849412' DEVELOPMENT_TEAM='#{ENV['APPLE_DEVELOPER_TEAM_ID']}'"
+    )
 
     upload_to_testflight(
       api_key: api_key,
