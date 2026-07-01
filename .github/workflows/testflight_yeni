@@ -49,22 +49,21 @@ jobs:
         run: |
           npm run build --if-present
 
-      - name: Capacitor Sync
-        run: npx cap sync ios
+      # ✨ GÜVENLİ SIFIRLAMA: Sunucuda sorun çıkaran ios klasörünü kökten uçurup temiz kopyayı çekiyoruz
+      - name: Prepare Clean Capacitor iOS Project
+        run: |
+          rm -rf ios
+          npx cap add ios
+          npx cap sync ios
 
-      # ✨ KESİN ÇÖZÜM: iOS 16.0 ayarı ile uyumsuzluk problemi kökten çözüldü!
-      - name: Install CocoaPods
+      # ✨ EN ÖNEMLİ DÜZELTME: Podfile sürümünü içerik ezmeden, doğrudan CocoaPods'un kendi aracıyla iOS 16.0'a çekiyoruz
+      - name: Optimize Podfile Deployment Target
         run: |
           cd ios/App
-          if [ ! -f "Podfile" ]; then
-            echo "Podfile repoda yok! Sunucuda elle olusturuluyor..."
-            pod init
-            echo "platform :ios, '16.0'" > Podfile
-            echo "target 'App' do" >> Podfile
-            echo "  use_frameworks!" >> Podfile
-            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "end" >> Podfile
+          if [ -f "Podfile" ]; then
+            sed -i '' "s/platform :ios, '13.0'/platform :ios, '16.0'/g" Podfile || true
+            sed -i '' "s/platform :ios, '14.0'/platform :ios, '16.0'/g" Podfile || true
+            sed -i '' "s/platform :ios, '15.0'/platform :ios, '16.0'/g" Podfile || true
           fi
           pod install --repo-update
           cd ../..
