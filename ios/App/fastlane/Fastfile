@@ -35,14 +35,12 @@ platform :ios do
     )
 
     build_app(
-      workspace: "App.xcworkspace",
-      scheme: "App",
-      export_method: "app-store",
-      # xcargs kullanarak Xcode'a manuel imzalama profilini doğrudan dikte ediyoruz
-      xcargs: {
-        PROVISIONING_PROFILE_SPECIFIER: ENV["sigh_com.borctakip.mobile.app_app-store_profile_name"]
-              }
-    )
+  workspace: "App.xcworkspace",
+  scheme: "App",
+  export_method: "app-store",
+  # xcargs'ı düz bir string olarak vererek Fastlane'in hata veren metodunu atlatıyoruz
+  xcargs: "PROVISIONING_PROFILE_SPECIFIER='match AppStore com.borctakip.mobile.app 1782849412'"
+)
 
     upload_to_testflight(
       api_key: api_key,
