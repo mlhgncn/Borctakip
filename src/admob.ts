@@ -153,10 +153,12 @@ export const setAdPersonalization = async (enabled: boolean): Promise<void> => {
   } catch (e) {}
 };
 
-export default {
+const AdMobApi = {
   initAdMob,
   showBanner,
   hideBanner,
   removeBanner,
   showInterstitial,
 };
+
+export default AdMobApi;

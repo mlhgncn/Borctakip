@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
-  Settings, Calendar, Wallet, CalendarClock, Plus, ChevronRight, ChevronLeft, CreditCard, Landmark,
+  Calendar, Wallet, CalendarClock, Plus, CreditCard, Landmark,
   ShoppingBag, X, Trash2, Home, ListChecks, PieChart, User, Target, Flame, PartyPopper, TrendingDown,
-  Check, RotateCcw, Bell, Info, Sparkles, ArrowRight, CalendarCheck,
+  Check, RotateCcw, Bell, Info, Sparkles, CalendarCheck,
 } from "lucide-react";
-import { initAdMob, showBanner, removeBanner, showInterstitialWithFrequency, prepareRewarded, showRewarded, setAdPersonalization } from "./admob";
-import IAP, { isAdsRemoved, startRemoveAdsPurchase } from "./iap";
+import { initAdMob, showBanner, removeBanner, prepareRewarded, showRewarded, setAdPersonalization } from "./admob";
+import { isAdsRemoved, startRemoveAdsPurchase } from "./iap";
 import { requestPermission as requestNotifPerm, scheduleNotificationForDebt, cancelNotificationForDebt } from "./notifications";
 
 const COLORS = {
@@ -66,15 +66,6 @@ interface SimulationResult {
   perDebtPayoffMonth: Record<string, number>;
   remainingByMonth: number[];
   stuck?: boolean;
-}
-
-interface WorkingDebt {
-  id: string;
-  balance: number;
-  rate: number;
-  icon: string;
-  termMonths?: number;
-  originalBalance?: number;
 }
 
 interface Celebration {
@@ -154,23 +145,25 @@ function simulateDetailed(debts: Debt[], monthlyCapacity: number, strategy: stri
     let capacity = monthlyCapacity;
     let paid = 0;
 
-    working.forEach((d) => {
+    for (let i = 0; i < working.length; i++) {
+      const d = working[i];
       if (d.balance > 0) {
         const interest = d.balance * d.rate;
         totalInterest += interest;
         d.balance += interest;
       }
-    });
+    }
 
-    working.forEach((d) => {
-      if (d.balance <= 0) return;
+    for (let i = 0; i < working.length; i++) {
+      const d = working[i];
+      if (d.balance <= 0) continue;
       const targetDebt = debts.find((debt) => debt.id === d.id);
       const minPay = targetDebt ? getMinimumPayment(targetDebt) : Math.min(d.balance * 0.05, d.balance);
       const pay = Math.min(minPay, capacity);
       d.balance -= pay;
       capacity -= pay;
       paid += pay;
-    });
+    }
 
     const ordered = sortForStrategy(working, strategy);
     for (const d of ordered) {
@@ -183,11 +176,12 @@ function simulateDetailed(debts: Debt[], monthlyCapacity: number, strategy: stri
     }
 
     months++;
-    working.forEach((d) => {
+    for (let i = 0; i < working.length; i++) {
+      const d = working[i];
       if (d.balance <= 0.01 && perDebtPayoffMonth[d.id] === undefined) {
         perDebtPayoffMonth[d.id] = months;
       }
-    });
+    }
 
     if (paid === 0) stuck = true;
     monthlyPayments.push(paid);
@@ -209,20 +203,22 @@ function applyOneMonth(debts: Debt[], monthlyCapacity: number, strategy: string)
     return { next: next.map((d) => ({ ...d, balance: 0 })), clearedIds: [], paid: 0 };
   }
 
-  next.forEach((d) => {
+  for (let i = 0; i < next.length; i++) {
+    const d = next[i];
     if (d.balance > 0) {
       const interest = d.balance * (d.rate / 100);
       d.balance = +(d.balance + interest).toFixed(2);
     }
-  });
+  }
 
-  next.forEach((d) => {
-    if (d.balance <= 0) return;
+  for (let i = 0; i < next.length; i++) {
+    const d = next[i];
+    if (d.balance <= 0) continue;
     const minPay = getMinimumPayment(d);
     const pay = Math.min(minPay, capacity);
     d.balance = Math.max(0, +(d.balance - pay).toFixed(2));
     capacity -= pay;
-  });
+  }
 
   const ordered = sortForStrategy(next, strategy);
   for (const d of ordered) {
@@ -249,9 +245,6 @@ function loadFromStorage<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
-function monthKey(d: Date = new Date()): string {
-  return `${d.getFullYear()}-${d.getMonth()}`;
-}
 
 export default function App() {
   const [debts, setDebts] = useState<Debt[]>(() => loadFromStorage("bp_debts", SEED_DEBTS));
@@ -263,15 +256,14 @@ export default function App() {
   const [lastConfirmedPaymentDate, setLastConfirmedPaymentDate] = useState<string | null>(() => loadFromStorage("bp_lastConfirmedPaymentDate", loadFromStorage("bp_lastPaidMonth", null)));
   const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>(() => loadFromStorage("bp_history", []));
   const [adsEnabled, setAdsEnabled] = useState<boolean>(() => loadFromStorage("bp_ads_enabled", true));
-    const [adPersonalization, setAdPersonalizationState] = useState<boolean>(() => loadFromStorage("bp_ad_personalization", true));
-    const [consentOpen, setConsentOpen] = useState<boolean>(() => !loadFromStorage("bp_consent_seen", false));
+  const [adPersonalization, setAdPersonalizationState] = useState<boolean>(() => loadFromStorage("bp_ad_personalization", true));
+  const [consentOpen] = useState<boolean>(() => !loadFromStorage("bp_consent_seen", false));
   const [sheet, setSheet] = useState<any>(null);
   const [paymentBeingProcessed, setPaymentBeingProcessed] = useState(false);
   const [navIndex, setNavIndex] = useState<number>(0);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
 
   // Initialize AdMob on app start (native platforms only)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     (async () => {
       try {
@@ -279,7 +271,8 @@ export default function App() {
         // apply stored personalization preference
         try { await setAdPersonalization(loadFromStorage("bp_ad_personalization", true)); } catch (e) {}
         const bannerId = process.env.REACT_APP_ADMOB_BANNER_ID || "";
-        if (bannerId && adsEnabled && !isAdsRemoved()) await showBanner(bannerId);
+        const storedAdsEnabled = loadFromStorage("bp_ads_enabled", true);
+        if (bannerId && storedAdsEnabled && !isAdsRemoved()) await showBanner(bannerId);
       } catch (e) {
         // ignore
       }
@@ -406,22 +399,7 @@ export default function App() {
     } catch (e) {}
   };
 
-<<<<<<< HEAD
-  const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string; extra?: boolean }) => {
-
-      
-
-  // --- SAYFALAR DIZISI ---
-  const pages = [
-    null,
-    <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
-    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
-  ];
-
-    
-=======
   const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string }) => {
->>>>>>> 1bd1147 (Push local app changes for TestFlight build)
     if (paymentBeingProcessed) return;
     setPaymentBeingProcessed(true);
     try {
@@ -459,7 +437,6 @@ export default function App() {
         return;
       }
 
-      // default: applyOneMonth behavior with provided amount
       const { next, clearedIds, paid } = applyOneMonth(debts, payAmount, strategy);
       setDebts(next);
       setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: paid, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
@@ -477,31 +454,7 @@ export default function App() {
     }
   };
 
-  const confirmMonthlyPayment = () => {
-    if (alreadyPaidThisMonth || capacity <= 0 || !hasDebts || totalBalance <= 0) return;
-    const { next, clearedIds, paid } = applyOneMonth(debts, capacity, strategy);
-    if (paid <= 0) return;
-    setDebts(next);
-    setStreak((s) => s + 1);
-    setLastConfirmedPaymentDate(new Date().toISOString());
-    setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: paid, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
-
-    if (clearedIds.length > 0) {
-      const cleared = debts.find((d) => d.id === clearedIds[0]);
-      const stillRemaining = next.some((d) => d.balance > 0.5);
-      setCelebration(stillRemaining ? { type: "debt-cleared", debt: cleared } : { type: "all-clear" });
-      try {
-        const interstitialId = process.env.REACT_APP_ADMOB_INTERSTITIAL_ID || "";
-        if (interstitialId && adsEnabled) {
-          // key 'monthly_payment' limits how often this is shown
-          showInterstitialWithFrequency(interstitialId, "monthly_payment", 300, 2);
-        }
-      } catch (e) {}
-    }
-  };
-
   const resetAllData = () => {
-    // cancel scheduled notifications
     try { debts.forEach(d => { if (d.id) cancelNotificationForDebt(d.id); }); } catch (e) {}
     setDebts([]);
     setStreak(0);
@@ -509,41 +462,6 @@ export default function App() {
     setPaymentHistory([]);
   };
 
-<<<<<<< HEAD
-  // --- REKLAM VE IAP FONKSİYONLARI ---
-  const handleWatchRewardAd = async () => {
-    try {
-      const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || "";
-      if (!rewardedId) {
-        alert('Rewarded Ad birimi ayarlı değil.');
-        return;
-      }
-      await prepareRewarded(rewardedId);
-      const shown = await showRewarded(rewardedId);
-      if (shown) {
-        setStreak((s) => s + 1);
-        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
-        alert('Teşekkürler — küçük bir ödül kazandınız. Analizlerinize +1 seri eklendi.');
-      } else {
-        alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
-      }
-    } catch (e) {
-      // ignore
-    }
-  };
-
-  const handleRemoveAds = async () => {
-    try {
-      const ok = await startRemoveAdsPurchase();
-      if (ok) {
-        setAdsEnabled(false);
-        alert('Reklamlar kaldırıldı (simülasyon). Gerçek cihazlarda IAP akışını tamamlayın.');
-      }
-    } catch (e) {}
-  };
-
-  // --- SAYFALAR DIZISI ---
-=======
   const handleAddDebt = () => {
     if (debts.length >= maxDebtLimit) {
       alert(`Maksimum borç limiti ${maxDebtLimit}. Reklam izleyerek limiti artırabilirsiniz.`);
@@ -552,7 +470,6 @@ export default function App() {
     setSheet({ type: 'add' });
   };
 
->>>>>>> 1bd1147 (Push local app changes for TestFlight build)
   const pages = [
     <HomePage key="home" {...{ hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, onConfirm: () => setSheet({ type: 'monthlyPayment', selectedDebtId: debts[0]?.id, customAmount: '' }), onSkip: () => performPayment(undefined, { skip: true }), onPartial: () => { if (totalBalance <= 0) return; setSheet({ type: 'pay', mode: 'partial', debtId: debts[0]?.id }); }, onAdd: handleAddDebt, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId: lowestBalanceDebt?.id, setSheet, deleteDebt, income, expense, hasOutstandingDebts: totalBalance > 0 }} />,
     <PlanPage key="plan" {...{ debts, plan, strategy, capacity, hasDebts }} />,
@@ -884,16 +801,6 @@ function PaymentCTA({ capacity, alreadyPaid, onConfirm, onSkip, onPartial, strea
     );
   }
 
-<<<<<<< HEAD
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => { onConfirm(); (window as any).appSetSheet?.({ type: "pay", mode: "partial" }); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
-          Kısmi Öde
-        </button>
-        <button onClick={() => { onConfirm(); (window as any).appSetSheet?.({ type: "pay", mode: "extra" }); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
-          Ekstra Öde
-        </button>
-        <button onClick={() => { onConfirm(); (window as any).appPerformSkip?.(); }} style={{ padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
-=======
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
       <button onClick={onConfirm} disabled={alreadyPaid} style={{
@@ -915,7 +822,6 @@ function PaymentCTA({ capacity, alreadyPaid, onConfirm, onSkip, onPartial, strea
           Kısmi Öde
         </button>
         <button onClick={onSkip} style={{ flex: 1, padding: "12px", borderRadius: 16, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
->>>>>>> 1bd1147 (Push local app changes for TestFlight build)
           Atla
         </button>
       </div>

@@ -6,16 +6,6 @@ export const isAdsRemoved = (): boolean => {
   try { const v = window.localStorage.getItem('bp_ads_removed'); return v === '1' || v === 'true'; } catch { return false; }
 };
 
-function waitForEvent(store: any, event: string, timeout = 20000) {
-  return new Promise((resolve, reject) => {
-    const onEvent = (...args: any[]) => { cleanup(); resolve(args); };
-    const onTimeout = () => { cleanup(); reject(new Error('timeout')); };
-    function cleanup() { try { store.off && store.off(event, onEvent); } catch {} }
-    try { store.on && store.on(event, onEvent); } catch {}
-    const t = setTimeout(onTimeout, timeout);
-  });
-}
-
 export const startRemoveAdsPurchase = async (productId = 'remove_ads'): Promise<boolean> => {
   const w = window as StoreWindow;
   try {
@@ -80,4 +70,6 @@ export const restorePurchases = async (): Promise<boolean> => {
   return isAdsRemoved();
 };
 
-export default { isAdsRemoved, startRemoveAdsPurchase, restorePurchases };
+const IAP = { isAdsRemoved, startRemoveAdsPurchase, restorePurchases };
+
+export default IAP;

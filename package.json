@@ -28,7 +28,9 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "patch:admob-sourcemaps": "node ./scripts/patch-admob-sourcemaps.js",
+    "postinstall": "npm run patch:admob-sourcemaps"
   },
   "eslintConfig": {
     "extends": [

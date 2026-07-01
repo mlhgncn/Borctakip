@@ -73,8 +73,10 @@ export async function cancelNotificationForDebt(debtId: string): Promise<void> {
   } catch (e) {}
 }
 
-export default {
+const NotificationApi = {
   requestPermission,
   scheduleNotificationForDebt,
   cancelNotificationForDebt,
 };
+
+export default NotificationApi;
