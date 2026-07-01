@@ -52,10 +52,24 @@ jobs:
       - name: Capacitor Sync
         run: npx cap sync ios
 
-      # Klasör zaten repoda hazır geldiği için doğrudan kuruluma geçiyor
+      # ✨ KESİN ÇÖZÜM: Sunucuda Podfile yoksa elinle zorla oluşturup içeriğini dolduruyoruz!
       - name: Install CocoaPods
         run: |
           cd ios/App
+          if [ ! -f "Podfile" ]; then
+            echo "Podfile repoda bulunamadı! GitHub Actions sunucusunda elle oluşturuluyor..."
+            pod init
+            
+            # Standart ve hatasız bir Capacitor Podfile içeriği enjekte ediyoruz
+            echo "platform :ios, '14.0'" > Podfile
+            echo "target 'App' do" >> Podfile
+            echo "  use_frameworks!" >> Podfile
+            echo "  # Capacitor Pods" >> Podfile
+            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "end" >> Podfile
+          fi
+          
           pod install --repo-update
           cd ../..
 
