@@ -1,60 +1,81 @@
-name: Deploy to TestFlight
+name: TestFlight Final
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - main # Veya hangi branch'i kullanıyorsan (örn: master, develop)
+      - main
 
 jobs:
-  deploy:
-    runs-on: macos-14 # En kararlı Xcode sürümleri için macos-14 (veya 15) idealdir
+  ios:
+    permissions:
+      contents: write
+    runs-on: macos-15
+    timeout-minutes: 45
 
     steps:
+      - name: Select Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. Doğru Node.js Versiyonunun Kurulması (Node 22)
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Volta (Enforce Node 22 globally)
+        uses: volta-cli/action@v4
         with:
-          node-version: 22
-          cache: 'npm'
+          node-version: '22'
 
-      # 2. Bağımlılıkların ve Web Paketinin Kurulması
-      - name: Install Dependencies & Build Web Project
-        run: |
-          npm ci
-          npm run build
-
-      # 3. CocoaPods Kurulumu ve Ruby Ortamı
-      - name: Setup Ruby and Fastlane
+      - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.3' # Güncel ve kararlı Ruby sürümü
+          ruby-version: '3.2'
           bundler-cache: true
 
-      # 4. Capacitor iOS Senkronizasyonu
-      - name: Capacitor Sync iOS
+      - name: Force Custom Fresh Install
         run: |
-          npx cap sync ios
+          npm config set cache /Users/runner/.npm-custom-cache --global
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps
+          npm install ajv@^8.0.0 ajv-keywords@^5.0.0 --save-dev --legacy-peer-deps
 
-      # 5. Pod'ların Tamamen Temiz ve Doğru Hedefle Kurulması
+      - name: Build Web Assets
+        env:
+          CI: false
+        run: npm run build --if-present
+
+      - name: Capacitor Sync
+        run: npx cap sync ios
+
       - name: Install CocoaPods
         run: |
           cd ios/App
-          pod deintegrate
-          pod install
+          pod install --repo-update
           cd ../..
 
-      # 6. Fastlane ile TestFlight'a Gönderim
-      # CI=true ve FASTLANE_NON_INTERACTIVE=true prompt kilitlenmelerini engeller
-      - name: Run Fastlane Deploy
-        env:
-          CI: true
-          FASTLANE_NON_INTERACTIVE: true
-          APPLE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APPLE_CONNECT_API_KEY_KEY_ID }}
-          APPLE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APPLE_CONNECT_API_KEY_ISSUER_ID }}
-          APPLE_CONNECT_API_KEY_KEY: ${{ secrets.APPLE_CONNECT_API_KEY_KEY }}
+      - name: Configure Git for SPM
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Pre-resolve SPM Dependencies
         run: |
           cd ios/App
-          bundle exec fastlane ios beta # Fastfile içindeki lane adın neyse (örn: beta, deploy) onu yaz
+          for i in 1 2 3; do
+            timeout 240 xcodebuild -resolvePackageDependencies -workspace App.xcworkspace -scheme App && break
+            echo "Attempt $i failed or timed out, retrying..."
+            sleep 10
+          done
+
+      - name: Build and upload to TestFlight
+        timeout-minutes: 25
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          FASTLANE_APPLE_ID: ${{ secrets.FASTLANE_APPLE_ID }}
+          APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
+          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          BUNDLE_ID: com.borctakip.mobile.app
+          MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
+        run: |
+          cd ios/App
+          bundle exec fastlane ios release
