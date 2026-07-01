@@ -19,9 +19,11 @@ platform :ios do
     )
 
     build_app(
-      workspace: "App.xcworkspace",
       scheme: "App",
-      export_method: "app-store"
+      workspace: "App.xcworkspace",
+      # ✨ Xcode'un harici paket aramaya çıkmasını ve kilitlenmesini engelleyen kritik satırlar:
+      xcargs: "-disablePackageRepositoryCache -skipPackagePluginValidation",
+      disable_xcpretty: true
     )
 
     upload_to_testflight(
