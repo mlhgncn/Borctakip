@@ -380,13 +380,9 @@ export default function App() {
   };
 
   // 2. HEMEN ALTINDAKİ SATIR:
-  const pages = [
-    null,
-    <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
-    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
-  ];
+  
 
-      const handleRemoveAds = async () => {
+     const handleRemoveAds = async () => {
         try {
           const ok = await startRemoveAdsPurchase();
           if (ok) {
@@ -395,6 +391,11 @@ export default function App() {
           }
         } catch (e) {}
       };
+    const pages = [
+    null,
+    <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
+    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
+  ];
     if (paymentBeingProcessed) return;
     setPaymentBeingProcessed(true);
     try {
