@@ -1,4 +1,4 @@
-name: TestFlight
+name: TestFlight Final Sabit
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Volta (Enforce Node 22 globally)
+      - name: Setup Volta
         uses: volta-cli/action@v4
         with:
           node-version: '22'
@@ -49,55 +49,32 @@ jobs:
         run: |
           npm run build --if-present
 
+      # ✨ KİLİTLENMEYİ ÇÖZEN ADIM: Xcode'un harici SPM paket yükleyicisini askıya alıyoruz
+      - name: Disable Xcode Swift Package Manager Fetching
+        run: |
+          defaults write com.apple.dt.Xcode IDEPackageSupportUseBuiltinSCM YES
+
       - name: Capacitor Sync
         run: npx cap sync ios
 
-      # ✨ KESİN ÇÖZÜM: Sunucuda Podfile yoksa elinle zorla oluşturup içeriğini dolduruyoruz!
       - name: Install CocoaPods
         run: |
           cd ios/App
           if [ ! -f "Podfile" ]; then
-            echo "Podfile yok, düzgün şablonla oluşturuluyor..."
-            cat > Podfile << 'EOF'
-          require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
-
-          platform :ios, '17.0'
-          use_frameworks!
-
-          def capacitor_pods
-            pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
-            pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
-          end
-
-          target 'App' do
-            capacitor_pods
-          end
-
-          post_install do |installer|
-            assertDeploymentTarget(installer)
-            installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
-              end
-            end
-          end
-          EOF
+            echo "Podfile repoda bulunamadı! GitHub Actions sunucusunda elle oluşturuluyor..."
+            pod init
+            echo "platform :ios, '17.0'" > Podfile
+            echo "target 'App' do" >> Podfile
+            echo "  use_frameworks!" >> Podfile
+            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "end" >> Podfile
           fi
-
           pod install --repo-update
           cd ../..
 
-      - name: Force Xcode Project Deployment Target
-        run: |
-          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 17.0/g' ios/App/App.xcodeproj/project.pbxproj || \
-          sed -i 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 17.0/g' ios/App/App.xcodeproj/project.pbxproj
-
       - name: Install Ruby Gems (Fastlane)
         run: bundle install
-
-      - name: Configure Git for SPM
-        run: |
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Build and upload to TestFlight
         env:
@@ -110,6 +87,4 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           BUNDLE_ID: com.borctakip.mobile.app
           MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
-        run: |
-          cd ios/App
-          bundle exec fastlane ios release
+        run: bundle exec fastlane ios release
