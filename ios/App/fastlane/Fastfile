@@ -38,8 +38,10 @@ platform :ios do
       workspace: "App.xcworkspace",
       scheme: "App",
       export_method: "app-store",
-      # Match tarafından indirilen profilleri otomatik olarak hedef bundle ID ile eşler
-      provisioning_profiles: Actions.lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING]
+      # xcargs kullanarak Xcode'a manuel imzalama profilini doğrudan dikte ediyoruz
+      xcargs: {
+        PROVISIONING_PROFILE_SPECIFIER: ENV["sigh_com.borctakip.mobile.app_app-store_profile_name"]
+              }
     )
 
     upload_to_testflight(
