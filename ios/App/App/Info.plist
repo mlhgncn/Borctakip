@@ -26,6 +26,9 @@
 	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
+	<!-- Google AdMob App ID -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3621419452103208~7477725836</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>

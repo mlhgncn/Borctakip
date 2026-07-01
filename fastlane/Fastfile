@@ -1,0 +1,40 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build and upload to TestFlight. Usage: fastlane ios release version:1.2"
+  lane :release do |options|
+    version = options[:version] || ENV["FL_VERSION"] || "1.2"
+    UI.message("Releasing version #{version}...")
+
+    # Optionally sync certificates via match if MATCH_GIT_URL is provided
+    if ENV['MATCH_GIT_URL'] && ENV['MATCH_PASSWORD']
+      match(type: "appstore", readonly: false, git_url: ENV['MATCH_GIT_URL'], git_branch: ENV['MATCH_GIT_BRANCH'])
+    end
+
+    # Update Info.plist CFBundleShortVersionString
+    plist_path = "ios/App/App/Info.plist"
+    if File.exist?(plist_path)
+      increment_version_number(version_number: version, plist_path: plist_path)
+    else
+      UI.message("Info.plist not found at #{plist_path}, skipping version bump.")
+    end
+
+    # Bump build number
+    increment_build_number(xcodeproj: "ios/App/App.xcodeproj") rescue nil
+
+    # Install CocoaPods and ensure workspace is ready
+    Dir.chdir("ios/App") do
+      sh("pod install --repo-update || true")
+    end
+
+    build_app(
+      workspace: "ios/App/App.xcworkspace",
+      scheme: "App",
+      export_method: "app-store",
+      clean: true,
+      output_directory: "./fastlane/builds"
+    )
+
+    upload_to_testflight(skip_waiting_for_build_processing: false)
+  end
+end

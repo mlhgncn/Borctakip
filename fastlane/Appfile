@@ -1,0 +1,4 @@
+# Fastlane Appfile
+app_identifier("${APP_IDENTIFIER}") # override via ENV or GitHub Secret
+team_id("${APPLE_TEAM_ID}")
+itc_team_id("${APPLE_TEAM_ID}")

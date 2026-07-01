@@ -5,6 +5,11 @@ import {
   Check, RotateCcw, Bell, Info, Sparkles, ArrowRight, CalendarCheck,
 } from "lucide-react";
 
+import { initAdMob, showBanner, removeBanner, showInterstitialWithFrequency } from "./admob";
+import { initAdMob, showBanner, removeBanner, showInterstitialWithFrequency, prepareRewarded, showRewarded, setAdPersonalization } from "./admob";
+import IAP, { isAdsRemoved, startRemoveAdsPurchase } from "./iap";
+import { requestPermission as requestNotifPerm, scheduleNotificationForDebt, cancelNotificationForDebt } from "./notifications";
+
 const COLORS = {
   bg: "#0B0C18",
   card: "#171829",
@@ -44,6 +49,7 @@ interface Debt {
   rate: number;
   icon: string;
   colorIndex: number;
+  dueDate?: string;
 }
 
 interface PaymentRecord {
@@ -226,9 +232,55 @@ export default function App() {
   const [streak, setStreak] = useState<number>(() => loadFromStorage("bp_streak", 0));
   const [lastPaidMonth, setLastPaidMonth] = useState<string | null>(() => loadFromStorage("bp_lastPaidMonth", null));
   const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>(() => loadFromStorage("bp_history", []));
+  const [adsEnabled, setAdsEnabled] = useState<boolean>(() => loadFromStorage("bp_ads_enabled", true));
+    const [adPersonalization, setAdPersonalizationState] = useState<boolean>(() => loadFromStorage("bp_ad_personalization", true));
+    const [consentOpen, setConsentOpen] = useState<boolean>(() => !loadFromStorage("bp_consent_seen", false));
   const [sheet, setSheet] = useState<any>(null);
+  const [paymentBeingProcessed, setPaymentBeingProcessed] = useState(false);
   const [navIndex, setNavIndex] = useState<number>(0);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
+
+  // Initialize AdMob on app start (native platforms only)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    (async () => {
+      try {
+        await initAdMob();
+        // apply stored personalization preference
+        try { await setAdPersonalization(loadFromStorage("bp_ad_personalization", true)); } catch (e) {}
+        const bannerId = process.env.REACT_APP_ADMOB_BANNER_ID || "";
+        if (bannerId && adsEnabled && !isAdsRemoved()) await showBanner(bannerId);
+      } catch (e) {
+        // ignore
+      }
+    })();
+
+    return () => {
+      // remove banner on unmount
+      removeBanner();
+    };
+  }, []);
+
+  useEffect(() => {
+    try { window.localStorage.setItem("bp_ads_enabled", JSON.stringify(adsEnabled)); } catch {}
+    (async () => {
+      try {
+        const bannerId = process.env.REACT_APP_ADMOB_BANNER_ID || "";
+        if (adsEnabled && bannerId && !isAdsRemoved()) await showBanner(bannerId);
+        if (!adsEnabled || isAdsRemoved()) await removeBanner();
+      } catch (e) {}
+    })();
+  }, [adsEnabled]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem('bp_ad_personalization', JSON.stringify(adPersonalization)); } catch {}
+    // apply to native SDK where possible
+    (async () => { try { await setAdPersonalization(adPersonalization); } catch (e) {} })();
+  }, [adPersonalization]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem('bp_consent_seen', JSON.stringify(true)); } catch {};
+  }, [consentOpen]);
 
   useEffect(() => { try { window.localStorage.setItem("bp_debts", JSON.stringify(debts)); } catch {} }, [debts]);
   useEffect(() => { try { window.localStorage.setItem("bp_income", JSON.stringify(income)); } catch {} }, [income]);
@@ -237,6 +289,23 @@ export default function App() {
   useEffect(() => { try { window.localStorage.setItem("bp_streak", JSON.stringify(streak)); } catch {} }, [streak]);
   useEffect(() => { try { window.localStorage.setItem("bp_lastPaidMonth", JSON.stringify(lastPaidMonth)); } catch {} }, [lastPaidMonth]);
   useEffect(() => { try { window.localStorage.setItem("bp_history", JSON.stringify(paymentHistory)); } catch {} }, [paymentHistory]);
+  useEffect(() => {
+    // request notification permission on app start (best-effort)
+    (async () => { try { await requestNotifPerm(); } catch (e) {} })();
+  }, []);
+
+  // expose helper for PaymentCTA buttons to open sheets without prop drilling
+  useEffect(() => {
+    // expose setter globally for simple buttons
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    window.appSetSheet = (s: any) => setSheet(s);
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      delete window.appSetSheet;
+    };
+  }, []);
 
   const totalBalance = useMemo(() => debts.reduce((s, d) => s + d.balance, 0), [debts]);
   const totalOriginal = useMemo(() => debts.reduce((s, d) => s + (d.originalBalance || d.balance), 0), [debts]);
@@ -254,7 +323,10 @@ export default function App() {
   const alreadyPaidThisMonth = lastPaidMonth === monthKey();
   const hasDebts = debts.length > 0;
 
-  const deleteDebt = (id: string) => setDebts((prev) => prev.filter((d) => d.id !== id));
+  const deleteDebt = (id: string) => {
+    try { cancelNotificationForDebt(id); } catch (e) {}
+    setDebts((prev) => prev.filter((d) => d.id !== id));
+  };
   const upsertDebt = (debt: Debt) =>
     setDebts((prev) => {
       const idx = prev.findIndex((d) => d.id === debt.id);
@@ -263,6 +335,131 @@ export default function App() {
       copy[idx] = { ...debt, originalBalance: copy[idx].originalBalance ?? debt.balance };
       return copy;
     });
+
+  // Wrap upsert to also schedule notification when dueDate provided
+  const saveDebtAndSchedule = (debt: Debt) => {
+    upsertDebt(debt);
+    try {
+      if (debt.dueDate) {
+        const due = new Date(debt.dueDate);
+        // schedule 1 day before at 10:00
+        const at = new Date(due);
+        at.setDate(at.getDate() - 1);
+        at.setHours(10, 0, 0, 0);
+        if (at.getTime() > Date.now()) {
+          scheduleNotificationForDebt(debt.id, `Ödeme hatırlatıcısı: ${debt.title}`, `Ödeme tarihi yaklaşıyor: ${debt.subtitle} — ${due.toLocaleDateString('tr-TR')}`, at);
+        }
+      } else {
+        // no due date -> cancel existing
+        cancelNotificationForDebt(debt.id);
+      }
+    } catch (e) {}
+  };
+
+  const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string; extra?: boolean }) => {
+
+      const handleWatchRewardAd = async () => {
+        try {
+          const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || "";
+          if (!rewardedId) {
+            alert('Rewarded Ad birimi ayarlı değil.');
+            return;
+          }
+          await prepareRewarded(rewardedId);
+          const shown = await showRewarded(rewardedId);
+          if (shown) {
+            // grant a small in-app reward: here we add 1 streak as a lightweight example
+            setStreak((s) => s + 1);
+            setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
+            alert('Teşekkürler — küçük bir ödül kazandınız. Analizlerinize +1 seri eklendi.');
+          } else {
+            alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+
+      const handleRemoveAds = async () => {
+        try {
+          const ok = await startRemoveAdsPurchase();
+          if (ok) {
+            setAdsEnabled(false);
+            alert('Reklamlar kaldırıldı (simülasyon). Gerçek cihazlarda IAP akışını tamamlayın.');
+          }
+        } catch (e) {}
+      };
+    if (paymentBeingProcessed) return;
+    setPaymentBeingProcessed(true);
+    try {
+      if (opts?.skip) {
+        // record skip
+        setLastPaidMonth(monthKey());
+        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
+        setStreak(0);
+        setSheet(null);
+        return;
+      }
+
+      const payAmount = typeof amount === "number" ? amount : capacity;
+
+      if (opts?.perDebtId) {
+        // add interest to all, then apply to target debt first, then distribute remainder by strategy
+        const next = debts.map((d) => ({ ...d }));
+        next.forEach((d) => {
+          if (d.balance > 0) {
+            const interest = d.balance * (d.rate / 100);
+            d.balance = +(d.balance + interest).toFixed(2);
+          }
+        });
+        let remaining = payAmount;
+        const targetIdx = next.findIndex((d) => d.id === opts.perDebtId);
+        if (targetIdx !== -1) {
+          const pay = Math.min(remaining, next[targetIdx].balance);
+          next[targetIdx].balance = +(next[targetIdx].balance - pay).toFixed(2);
+          remaining -= pay;
+        }
+        const ordered = sortForStrategy(next, strategy);
+        for (const od of ordered) {
+          if (remaining <= 0) break;
+          const t = next.find((x) => x.id === od.id);
+          if (!t || t.balance <= 0) continue;
+          const p = Math.min(t.balance, remaining);
+          t.balance = +(t.balance - p).toFixed(2);
+          remaining -= p;
+        }
+        const clearedIds = next.filter((d, i) => d.balance <= 0.5 && debts[i].balance > 0.5).map((d) => d.id);
+        setDebts(next.map((d) => ({ ...d, balance: Math.max(0, d.balance) })));
+        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: payAmount, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
+        setLastPaidMonth(monthKey());
+        setStreak((s) => s + 1);
+        if (clearedIds.length > 0) {
+          const cleared = debts.find((d) => d.id === clearedIds[0]);
+          const stillRemaining = next.some((d) => d.balance > 0.5);
+          setCelebration(stillRemaining ? { type: "debt-cleared", debt: cleared } : { type: "all-clear" });
+        }
+        setSheet(null);
+        return;
+      }
+
+      // default: applyOneMonth behavior with provided amount
+      const { next, clearedIds } = applyOneMonth(debts, payAmount, strategy);
+      setDebts(next);
+      setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: payAmount, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
+      setLastPaidMonth(monthKey());
+      setStreak((s) => s + 1);
+      if (clearedIds.length > 0) {
+        const cleared = debts.find((d) => d.id === clearedIds[0]);
+        const stillRemaining = next.some((d) => d.balance > 0.5);
+        setCelebration(stillRemaining ? { type: "debt-cleared", debt: cleared } : { type: "all-clear" });
+      }
+      setSheet(null);
+    } catch (e) {
+      // ignore
+    } finally {
+      setPaymentBeingProcessed(false);
+    }
+  };
 
   const confirmMonthlyPayment = () => {
     if (alreadyPaidThisMonth || capacity <= 0 || !hasDebts) return;
@@ -276,10 +473,19 @@ export default function App() {
       const cleared = debts.find((d) => d.id === clearedIds[0]);
       const stillRemaining = next.some((d) => d.balance > 0.5);
       setCelebration(stillRemaining ? { type: "debt-cleared", debt: cleared } : { type: "all-clear" });
+      try {
+        const interstitialId = process.env.REACT_APP_ADMOB_INTERSTITIAL_ID || "";
+        if (interstitialId && adsEnabled) {
+          // key 'monthly_payment' limits how often this is shown
+          showInterstitialWithFrequency(interstitialId, "monthly_payment", 300, 2);
+        }
+      } catch (e) {}
     }
   };
 
   const resetAllData = () => {
+    // cancel scheduled notifications
+    try { debts.forEach(d => { if (d.id) cancelNotificationForDebt(d.id); }); } catch (e) {}
     setDebts([]);
     setStreak(0);
     setLastPaidMonth(null);
@@ -291,7 +497,7 @@ export default function App() {
     <PlanPage key="plan" {...{ debts, plan, strategy, capacity, hasDebts }} />,
     null,
     <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
-    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts }} />,
+    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
   ];
 
   return (
@@ -307,14 +513,46 @@ export default function App() {
         input[type=range] { -webkit-appearance: none; }
       `}</style>
       <div style={{ width: "100%", maxWidth: 430, minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative" }}>
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 100px", animation: "fadeIn 0.25s ease" }} key={navIndex}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 100px", animation: "fadeIn 0.25s ease" }} key={navIndex}>
           {pages[navIndex]}
         </div>
 
         <BottomNav index={navIndex} onTap={(i: number) => (i === 2 ? setSheet({ type: "add" }) : setNavIndex(i))} />
 
         {(sheet?.type === "add" || sheet?.type === "edit") && (
-          <AddEditSheet existing={sheet.debt} onClose={() => setSheet(null)} onSave={(d: Debt) => { upsertDebt(d); setSheet(null); }} />
+          <AddEditSheet existing={sheet.debt} onClose={() => setSheet(null)} onSave={(d: Debt) => { saveDebtAndSchedule(d); setSheet(null); }} />
+        )}
+        {sheet?.type === "pay" && (
+          <SheetWrapper onClose={() => setSheet(null)}>
+            <h3 style={{ color: COLORS.textPrimary, fontSize: 18, fontWeight: 800, margin: 0 }}>{sheet.mode === 'partial' ? 'Kısmi Ödeme' : sheet.mode === 'extra' ? 'Ekstra Ödeme' : 'Ödeme'}</h3>
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {sheet.mode !== 'skip' && (
+                <div>
+                  <FieldLabel>Miktar (₺)</FieldLabel>
+                  <input style={inputStyle as React.CSSProperties} type="number" placeholder={sheet.mode === 'extra' ? 'Ekstra tutarı girin' : 'Ödenecek tutarı girin'} id="_payment_amount" />
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { setSheet(null); }} style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: 'transparent', color: COLORS.textSecondary }}>Vazgeç</button>
+                <button onClick={() => {
+                  try {
+                    if (sheet.mode === 'skip') { performPayment(undefined, { skip: true }); return; }
+                    const el = document.getElementById('_payment_amount') as HTMLInputElement | null;
+                    const raw = el?.value || '';
+                    const num = parseFloat(raw.replace(',', '.')) || 0;
+                    if (sheet.mode === 'partial') {
+                      if (num <= 0) return;
+                      performPayment(num, { perDebtId: sheet.debtId });
+                    } else if (sheet.mode === 'extra') {
+                      const extra = num;
+                      const total = Math.max(0, capacity + extra);
+                      performPayment(total, { perDebtId: sheet.debtId });
+                    }
+                  } catch (e) {}
+                }} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`, color: '#fff' }}>Onayla</button>
+              </div>
+            </div>
+          </SheetWrapper>
         )}
         {celebration && <CelebrationModal data={celebration} onClose={() => setCelebration(null)} />}
       </div>
@@ -360,7 +598,7 @@ function HomePage(props: PageProps) {
 
 function Header({ streak }: { streak: number }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginTop: 6 }}>
       <div>
         <h1 style={{ color: COLORS.textPrimary, fontSize: 24, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>Borç Kapatma Planlayıcısı</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
@@ -454,15 +692,29 @@ function PaymentCTA({ capacity, alreadyPaid, onConfirm, streak }: { capacity: nu
     );
   }
   return (
-    <button onClick={onConfirm} disabled={alreadyPaid} style={{
-      width: "100%", marginTop: 14, padding: "16px", borderRadius: 18, border: "none", cursor: alreadyPaid ? "default" : "pointer",
-      background: alreadyPaid ? COLORS.cardAlt : `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`,
-      color: alreadyPaid ? COLORS.textSecondary : "#fff", fontWeight: 700, fontSize: 14,
-      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-      animation: alreadyPaid ? "none" : "pulseRing 2.4s infinite",
-    }}>
-      {alreadyPaid ? <><Check size={18} /> Bu ayın ödemesi onaylandı{streak > 1 ? ` · ${streak} aylık seri 🔥` : ""}</> : <>Bu Ayın Ödemesini Onayla — {tl(capacity)}</>}
-    </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <button onClick={onConfirm} disabled={alreadyPaid} style={{
+        width: "100%", marginTop: 14, padding: "16px", borderRadius: 18, border: "none", cursor: alreadyPaid ? "default" : "pointer",
+        background: alreadyPaid ? COLORS.cardAlt : `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`,
+        color: alreadyPaid ? COLORS.textSecondary : "#fff", fontWeight: 700, fontSize: 14,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        animation: alreadyPaid ? "none" : "pulseRing 2.4s infinite",
+      }}>
+        {alreadyPaid ? <><Check size={18} /> Bu ayın ödemesi onaylandı{streak > 1 ? ` · ${streak} aylık seri 🔥` : ""}</> : <>Bu Ayın Ödemesini Onayla — {tl(capacity)}</>}
+      </button>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onConfirm && (window as any).appSetSheet?.({ type: "pay", mode: "partial" })} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
+          Kısmi Öde
+        </button>
+        <button onClick={() => onConfirm && (window as any).appSetSheet?.({ type: "pay", mode: "extra" })} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
+          Ekstra Öde
+        </button>
+        <button onClick={() => onConfirm && (window as any).appPerformSkip?.()} style={{ padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
+          Atla
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -539,9 +791,14 @@ function DebtList({ debts, priorityId, strategy, onEdit, onDelete }: { debts: De
                   {strategy === "snowball" ? "Sırada" : "En Yüksek Faiz"}
                 </span>
               )}
-              <button onClick={(e) => { e.stopPropagation(); onDelete(d.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: COLORS.textSecondary }} aria-label="Sil">
-                <Trash2 size={16} />
-              </button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={(e) => { e.stopPropagation(); (window as any).appSetSheet?.({ type: 'pay', mode: 'extra', debtId: d.id }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: COLORS.textSecondary }} aria-label="EkstraÖde">
+                  <ArrowRight size={16} />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); onDelete(d.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: COLORS.textSecondary }} aria-label="Sil">
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
             <div style={{ marginTop: 10, height: 5, borderRadius: 4, background: COLORS.cardAlt, overflow: "hidden" }}>
               <div style={{ width: `${paidRatio * 100}%`, height: "100%", borderRadius: 4, background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`, transition: "width 0.6s ease" }} />
@@ -714,7 +971,7 @@ function Stat({ label, value, color }: { label: string; value: string | number; 
 
 function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div>
+    <div style={{ marginTop: 6 }}>
       <h1 style={{ color: COLORS.textPrimary, fontSize: 24, fontWeight: 800, margin: 0 }}>{title}</h1>
       <p style={{ color: COLORS.textSecondary, fontSize: 14, margin: "4px 0 0" }}>{subtitle}</p>
     </div>
@@ -855,9 +1112,15 @@ interface AyarlarPageProps {
   resetAllData: () => void;
   streak: number;
   debts: Debt[];
+  adsEnabled: boolean;
+  setAdsEnabled: (v: boolean) => void;
+  adPersonalization?: boolean;
+  setAdPersonalizationState?: (b: boolean) => void;
+  handleWatchRewardAd?: () => void;
+  handleRemoveAds?: () => void;
 }
 
-function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts }: AyarlarPageProps) {
+function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }: AyarlarPageProps & { adPersonalization?: boolean; setAdPersonalizationState?: (b: boolean) => void; handleWatchRewardAd?: () => void; handleRemoveAds?: () => void }) {
   const [i, setI] = useState(income.toString());
   const [e, setE] = useState(expense.toString());
   const [notif, setNotif] = useState(true);
@@ -903,6 +1166,12 @@ function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStra
       <SectionLabel>Tercihler</SectionLabel>
       <div style={{ background: COLORS.card, border: `1px solid ${COLORS.stroke}`, borderRadius: 20, overflow: "hidden" }}>
         <ToggleRow icon={Bell} label="Ödeme hatırlatmaları" sub="Her ay ödeme zamanı geldiğinde bildirim al" value={notif} onChange={setNotif} />
+        <ToggleRow icon={Info} label="Reklamları Göster" sub="Uygulamadaki reklamları aç/kapat" value={adsEnabled} onChange={(v: boolean) => setAdsEnabled(v)} />
+        <ToggleRow icon={User} label="Reklam Kişiselleştirme" sub="Kişiselleştirilmiş reklamlar gösterilsin mi" value={!!adPersonalization} onChange={(v: boolean) => setAdPersonalizationState && setAdPersonalizationState(v)} />
+        <div style={{ padding: 12, display: 'flex', gap: 8 }}>
+          <button onClick={() => handleWatchRewardAd && handleWatchRewardAd()} style={{ flex: 1, padding: '10px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: 'transparent', color: COLORS.purple, cursor: 'pointer' }}>Reklam İzle — Ödül Al</button>
+          <button onClick={() => handleRemoveAds && handleRemoveAds()} style={{ padding: '10px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: COLORS.purple, color: '#fff', cursor: 'pointer' }}>{isAdsRemoved() ? 'Reklamlar Kaldırıldı' : 'Reklamları Kaldır'}</button>
+        </div>
       </div>
 
       <SectionLabel>Veri</SectionLabel>
@@ -1021,7 +1290,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 const inputStyle = {
   width: "100%", boxSizing: "border-box", background: COLORS.cardAlt, border: `1px solid ${COLORS.stroke}`,
-  borderRadius: 12, padding: "12px 14px", color: COLORS.textPrimary, fontSize: 14, outline: "none",
+  borderRadius: 12, padding: "12px 14px", color: COLORS.textPrimary, fontSize: 16, outline: "none",
 };
 
 function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose: () => void; onSave: (d: Debt) => void }) {
@@ -1030,6 +1299,7 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
   const [balance, setBalance] = useState(existing?.balance?.toString() || "");
   const [rate, setRate] = useState(existing?.rate?.toString() || "");
   const [icon, setIcon] = useState(existing?.icon || "card");
+  const [dueDate, setDueDate] = useState(existing?.dueDate ? (existing.dueDate.slice(0,10)) : "");
 
   const save = () => {
     const balNum = parseFloat(balance.replace(",", "."));
@@ -1043,6 +1313,7 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
       originalBalance: existing?.originalBalance ?? balNum,
       rate: rateNum,
       icon,
+      dueDate: dueDate ? `${dueDate}` : undefined,
       colorIndex: existing?.colorIndex ?? Math.floor(Math.random() * 4),
     });
   };
@@ -1088,6 +1359,10 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
               );
             })}
           </div>
+        </div>
+        <div>
+          <FieldLabel>Ödeme Tarihi</FieldLabel>
+          <input style={inputStyle as React.CSSProperties} value={dueDate} onChange={(e) => setDueDate(e.target.value)} type="date" />
         </div>
       </div>
       <div style={{ display: "flex", gap: 12, marginTop: 20 }}>

@@ -1,0 +1,60 @@
+name: iOS TestFlight Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'CFBundleShortVersionString (e.g. 1.2)'
+        required: true
+        default: '1.2'
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Install Capacitor & sync iOS
+        run: npx cap sync ios
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install fastlane
+        run: gem install fastlane -NV
+
+      - name: Run Fastlane release
+        env:
+          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }} # Base64 of .p8
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        run: |
+          set -e
+          # decode and write App Store Connect key file for fastlane
+          if [ -n "$ASC_PRIVATE_KEY" ]; then
+            echo "$ASC_PRIVATE_KEY" | base64 --decode > ./asc_key.p8
+            export APP_STORE_CONNECT_API_KEY_PATH=./asc_key.p8
+          fi
+          bundle exec fastlane ios release version:${{ github.event.inputs.version }}
+
+    # Notes:
+    # - Add secrets: APP_IDENTIFIER, APPLE_TEAM_ID, ASC_ISSUER_ID, ASC_KEY_ID, ASC_PRIVATE_KEY (base64), MATCH_GIT_URL (optional), MATCH_PASSWORD (if using match).
+    # - The Fastlane lane 'release' will build the workspace at ios/App and upload to TestFlight.
