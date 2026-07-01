@@ -1,4 +1,4 @@
-name: TestFlight Yeni
+name: TestFlight Yeni Sabit
 
 on:
   workflow_dispatch:
@@ -49,22 +49,29 @@ jobs:
         run: |
           npm run build --if-present
 
-      # ✨ GÜVENLİ SIFIRLAMA: Sunucuda sorun çıkaran ios klasörünü kökten uçurup temiz kopyayı çekiyoruz
-      - name: Prepare Clean Capacitor iOS Project
-        run: |
-          rm -rf ios
-          npx cap add ios
-          npx cap sync ios
+      - name: Capacitor Sync
+        run: npx cap sync ios
 
-      # ✨ EN ÖNEMLİ DÜZELTME: Podfile sürümünü içerik ezmeden, doğrudan CocoaPods'un kendi aracıyla iOS 16.0'a çekiyoruz
-      - name: Optimize Podfile Deployment Target
+      # ✨ BURAYI GARANTİYE ALDIK: Sunucu eski kodda ısrar etse bile artık iOS 16.0 basacak!
+      - name: Install CocoaPods
         run: |
           cd ios/App
-          if [ -f "Podfile" ]; then
+          if [ ! -f "Podfile" ] && [ ! -f "App/Podfile" ]; then
+            echo "Kritik: Podfile sunucuda elle sifirdan olusturuluyor..."
+            pod init
+            echo "platform :ios, '16.0'" > Podfile
+            echo "target 'App' do" >> Podfile
+            echo "  use_frameworks!" >> Podfile
+            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "end" >> Podfile
+          else
+            echo "Podfile bulundu, surumler kontrol ediliyor..."
             sed -i '' "s/platform :ios, '13.0'/platform :ios, '16.0'/g" Podfile || true
             sed -i '' "s/platform :ios, '14.0'/platform :ios, '16.0'/g" Podfile || true
             sed -i '' "s/platform :ios, '15.0'/platform :ios, '16.0'/g" Podfile || true
           fi
+          
           pod install --repo-update
           cd ../..
 
