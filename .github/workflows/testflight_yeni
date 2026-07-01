@@ -54,16 +54,15 @@ jobs:
         run: npx cap sync ios
 
       # ✨ BURAYI GARANTİYE ALDIK: Sunucu eski kodda ısrar etse bile artık iOS 16.0 basacak!
-      - name: Install CocoaPods
+      - name: Auto-Fix and Install CocoaPods
         run: |
           cd ios/App
-          pod init || true
-          echo "platform :ios, '16.0'" > Podfile
-          echo "target 'App' do" >> Podfile
-          echo "  use_frameworks!" >> Podfile
-          echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-          echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-          echo "end" >> Podfile
+          # Eski veya hatalı her şeyi temizle
+          rm -f Podfile Podfile.lock
+          # Capacitor'ın kendi otomatik Podfile oluşturma mekanizmasını tetikle
+          npx cap migrate --yes || true
+          npx cap sync ios
+          # Sorunsuz kurulum yap
           pod install --repo-update
           cd ../..
 
