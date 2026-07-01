@@ -358,38 +358,7 @@ export default function App() {
 
   const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string; extra?: boolean }) => {
 
-      const handleWatchRewardAd = async () => {
-    try {
-      const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || "";
-      if (!rewardedId) {
-        alert('Rewarded Ad birimi ayarlı değil.');
-        return;
-      }
-      await prepareRewarded(rewardedId);
-      const shown = await showRewarded(rewardedId);
-      if (shown) {
-        setStreak((s) => s + 1);
-        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
-        alert('Teşekkürler — küçük bir ödül kazandınız. Analizlerinize +1 seri eklendi.');
-      } else {
-        alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
-      }
-    } catch (e) {
-      // ignore
-    }
-  };
-
-  const handleRemoveAds = async () => {
-    try {
-      const success = await startRemoveAdsPurchase();
-      if (success) {
-        setAdsEnabled(false);
-        alert('Reklamlar başarıyla kaldırıldı! Teşekkür ederiz.');
-      }
-    } catch (e) {
-      alert('Satın alma esnasında bir hata oluştu.');
-    }
-  };
+      
 
   // --- SAYFALAR DIZISI ---
   const pages = [
@@ -501,6 +470,41 @@ export default function App() {
     setLastPaidMonth(null);
     setPaymentHistory([]);
   };
+
+  // --- REKLAM VE IAP FONKSİYONLARI (DOĞRU SCOPE) ---
+  const handleWatchRewardAd = async () => {
+    try {
+      const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || "";
+      if (!rewardedId) {
+        alert('Rewarded Ad birimi ayarlı değil.');
+        return;
+      }
+      await prepareRewarded(rewardedId);
+      const shown = await showRewarded(rewardedId);
+      if (shown) {
+        setStreak((s) => s + 1);
+        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
+        alert('Teşekkürler — küçük bir ödül kazandınız. Analizlerinize +1 seri eklendi.');
+      } else {
+        alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleRemoveAds = async () => {
+    try {
+      const ok = await startRemoveAdsPurchase();
+      if (ok) {
+        setAdsEnabled(false);
+        alert('Reklamlar kaldırıldı (simülasyon). Gerçek cihazlarda IAP akışını tamamlayın.');
+      }
+    } catch (e) {}
+  };
+
+  // --- SAYFALAR DIZISI ---
+  const pages = [
 
   const pages = [
     <HomePage key="home" {...{ hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, confirmMonthlyPayment, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId: lowestBalanceDebt?.id, setSheet, deleteDebt, income, expense }} />,
