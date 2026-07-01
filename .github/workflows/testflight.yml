@@ -120,10 +120,13 @@ jobs:
           pod install --repo-update
           cd ../..
 
+      - name: Install Ruby Gems (Fastlane)
+        run: bundle install
+
       - name: Share Xcode Scheme
         run: |
           cd ios/App
-          ruby -rxcodeproj -e '
+          bundle exec ruby -rxcodeproj -e '
             project_path = "App.xcodeproj"
             project = Xcodeproj::Project.open(project_path)
             project.targets.each do |target|
@@ -164,9 +167,6 @@ jobs:
             echo "SPM resolution failed after 3 attempts"
             exit 1
           fi
-
-      - name: Install Ruby Gems (Fastlane)
-        run: bundle install
 
       - name: Build and upload to TestFlight
         timeout-minutes: 25
