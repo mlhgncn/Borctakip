@@ -56,22 +56,11 @@ jobs:
       - name: Install CocoaPods
         run: |
           cd ios/App
-          if [ ! -f "Podfile" ] && [ ! -f "App/Podfile" ]; then
-            echo "Kritik: Podfile sunucuda elle sifirdan olusturuluyor..."
-            pod init
-            echo "platform :ios, '16.0'" > Podfile
-            echo "target 'App' do" >> Podfile
-            echo "  use_frameworks!" >> Podfile
-            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "end" >> Podfile
-          else
-            echo "Podfile bulundu, surumler kontrol ediliyor..."
-            sed -i '' "s/platform :ios, '13.0'/platform :ios, '16.0'/g" Podfile || true
-            sed -i '' "s/platform :ios, '14.0'/platform :ios, '16.0'/g" Podfile || true
-            sed -i '' "s/platform :ios, '15.0'/platform :ios, '16.0'/g" Podfile || true
-          fi
-          
+          pod init
+          echo "platform :ios, '17.0'" > Podfile
+          echo "target 'App' do" >> Podfile
+          echo "  use_frameworks!" >> Podfile
+          echo "end" >> Podfile
           pod install --repo-update
           cd ../..
 
