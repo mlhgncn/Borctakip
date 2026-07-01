@@ -95,6 +95,10 @@ jobs:
       - name: Install Ruby Gems (Fastlane)
         run: bundle install
 
+      - name: Configure Git for SPM
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Build and upload to TestFlight
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
