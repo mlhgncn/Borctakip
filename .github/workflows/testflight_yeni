@@ -25,7 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Volta
+      - name: Setup Volta (Enforce Node 22 globally)
         uses: volta-cli/action@v4
         with:
           node-version: '22'
@@ -52,14 +52,14 @@ jobs:
       - name: Capacitor Sync
         run: npx cap sync ios
 
-      # ⚡ SUNUCUDA PODFILE YOKSA SIFIRDAN KENDİSİ YARATACAK ⚡
+      # ✨ KESİN ÇÖZÜM: iOS 16.0 ayarı ile uyumsuzluk problemi kökten çözüldü!
       - name: Install CocoaPods
         run: |
           cd ios/App
           if [ ! -f "Podfile" ]; then
             echo "Podfile repoda yok! Sunucuda elle olusturuluyor..."
             pod init
-            echo "platform :ios, '14.0'" > Podfile
+            echo "platform :ios, '16.0'" > Podfile
             echo "target 'App' do" >> Podfile
             echo "  use_frameworks!" >> Podfile
             echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
