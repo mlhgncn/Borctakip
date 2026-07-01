@@ -57,21 +57,40 @@ jobs:
         run: |
           cd ios/App
           if [ ! -f "Podfile" ]; then
-            echo "Podfile repoda bulunamadı! GitHub Actions sunucusunda elle oluşturuluyor..."
-            pod init
-            
-            # Standart ve hatasız bir Capacitor Podfile içeriği enjekte ediyoruz
-            echo "platform :ios, '14.0'" > Podfile
-            echo "target 'App' do" >> Podfile
-            echo "  use_frameworks!" >> Podfile
-            echo "  # Capacitor Pods" >> Podfile
-            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "end" >> Podfile
+            echo "Podfile yok, düzgün şablonla oluşturuluyor..."
+            cat > Podfile << 'EOF'
+          require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+
+          platform :ios, '17.0'
+          use_frameworks!
+
+          def capacitor_pods
+            pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
+            pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
+          end
+
+          target 'App' do
+            capacitor_pods
+          end
+
+          post_install do |installer|
+            assertDeploymentTarget(installer)
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
+              end
+            end
+          end
+          EOF
           fi
-          
+
           pod install --repo-update
           cd ../..
+
+      - name: Force Xcode Project Deployment Target
+        run: |
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 17.0/g' ios/App/App.xcodeproj/project.pbxproj || \
+          sed -i 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 17.0/g' ios/App/App.xcodeproj/project.pbxproj
 
       - name: Install Ruby Gems (Fastlane)
         run: bundle install
