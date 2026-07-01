@@ -120,6 +120,22 @@ jobs:
           pod install --repo-update
           cd ../..
 
+      - name: Share Xcode Scheme
+        run: |
+          cd ios/App
+          ruby -rxcodeproj -e '
+            project_path = "App.xcodeproj"
+            project = Xcodeproj::Project.open(project_path)
+            project.targets.each do |target|
+              next unless target.name == "App"
+              scheme = Xcodeproj::XCScheme.new
+              scheme.add_build_target(target)
+              scheme.set_launch_target(target)
+              scheme.save_as(project_path, "App", true)
+            end
+            puts "Scheme shared successfully"
+          '
+
       - name: Pre-resolve SPM Dependencies
         timeout-minutes: 15
         run: |
