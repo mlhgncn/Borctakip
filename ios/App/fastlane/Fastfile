@@ -18,6 +18,15 @@ platform :ios do
       api_key: api_key
     )
 
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: "App.xcodeproj",
+      team_id: ENV["APPLE_DEVELOPER_TEAM_ID"],
+      code_sign_identity: "Apple Distribution",
+      bundle_identifier: ENV["BUNDLE_ID"],
+      profile_name: ENV["sigh_#{ENV['BUNDLE_ID']}_appstore_profile-name"]
+    )
+
     increment_build_number(
       xcodeproj: "App.xcodeproj",
       build_number: latest_testflight_build_number(api_key: api_key) + 1
