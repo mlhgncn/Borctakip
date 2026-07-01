@@ -50,13 +50,23 @@ jobs:
         run: |
           npm run build --if-present
 
-      - name: Auto-Fix and Install CocoaPods
+      - name: Install CocoaPods
         run: |
           cd ios/App
-          rm -f Podfile Podfile.lock
-          npx cap migrate --yes || true
-          npx cap sync ios || true
-          pod install --repo-update || true
+          if [ ! -f "Podfile" ]; then
+            echo "Podfile repoda bulunamadı! GitHub Actions sunucusunda elle oluşturuluyor..."
+            pod init
+            
+            # Hatayı çözen kritik kısım: Sürümü iOS 16.0 yerine doğrudan iOS 17.0 yapıyoruz!
+            echo "platform :ios, '17.0'" > Podfile
+            echo "target 'App' do" >> Podfile
+            echo "  use_frameworks!" >> Podfile
+            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "end" >> Podfile
+          fi
+          
+          pod install --repo-update
           cd ../..
 
       - name: Install Ruby Gems (Fastlane)
