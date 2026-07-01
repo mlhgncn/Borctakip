@@ -57,7 +57,7 @@ jobs:
         timeout-minutes: 10
         env:
           CI: false
-        run: npm run build --if-present
+        run: npm run build
 
       - name: Capacitor Copy
         timeout-minutes: 3
