@@ -1,10 +1,86 @@
-Run cd ios/App
-Podfile repoda bulunamadı! GitHub Actions sunucusunda elle oluşturuluyor...
-Updating local specs repositories
-Adding spec repo `trunk` with CDN `https://cdn.cocoapods.org/`
-Analyzing dependencies
-[!] CocoaPods could not find compatible versions for pod "Capacitor":
-  In Podfile:
-    Capacitor (from `../../node_modules/@capacitor/ios`)
-Specs satisfying the `Capacitor (from `../../node_modules/@capacitor/ios`)` dependency were found, but they required a higher minimum deployment target.
-Error: Process completed with exit code 1.
+name: TestFlight Yeni
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  ios:
+    permissions:
+      contents: write
+    runs-on: macos-latest
+
+    steps:
+      - name: Select Latest Available Xcode
+        run: |
+          if [ -d "/Applications/Xcode_26.5.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+          else
+            LATEST_XCODE=$(ls -d /Applications/Xcode*.app | tail -n 1)
+            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Volta
+        uses: volta-cli/action@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Force Custom Fresh Install
+        run: |
+          npm config set cache /Users/runner/.npm-custom-cache --global
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps
+          npm install ajv@^8.0.0 ajv-keywords@^5.0.0 --save-dev --legacy-peer-deps
+
+      - name: Build Web Assets
+        env:
+          CI: false
+        run: |
+          npm run build --if-present
+
+      - name: Capacitor Sync
+        run: npx cap sync ios
+
+      # ⚡ SUNUCUDA PODFILE YOKSA SIFIRDAN KENDİSİ YARATACAK ⚡
+      - name: Install CocoaPods
+        run: |
+          cd ios/App
+          if [ ! -f "Podfile" ]; then
+            echo "Podfile repoda yok! Sunucuda elle olusturuluyor..."
+            pod init
+            echo "platform :ios, '14.0'" > Podfile
+            echo "target 'App' do" >> Podfile
+            echo "  use_frameworks!" >> Podfile
+            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
+            echo "end" >> Podfile
+          fi
+          pod install --repo-update
+          cd ../..
+
+      - name: Install Ruby Gems (Fastlane)
+        run: bundle install
+
+      - name: Build and upload to TestFlight
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          FASTLANE_APPLE_ID: ${{ secrets.FASTLANE_APPLE_ID }}
+          APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
+          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          BUNDLE_ID: com.borctakip.mobile.app
+          MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
+        run: bundle exec fastlane ios release
