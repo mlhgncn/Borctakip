@@ -10,15 +10,19 @@ jobs:
   ios:
     permissions:
       contents: write
-    runs-on: macos-15
+    # 1. CRITICAL: Apple SDK hatasını çözmek için en güncel macOS imajına geçiyoruz
+    runs-on: macos-26
     timeout-minutes: 60
 
     steps:
-      - name: Select Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # 2. CRITICAL: Sistemde yüklü olan en güncel Xcode 26 sürümünü aktif ediyoruz
+      - name: Select Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          xcodebuild -version
 
       - name: Disable IPv6 (SPM hang fix)
         run: |
@@ -34,10 +38,11 @@ jobs:
         with:
           node-version: '22'
 
+      # 3. CRITICAL: Ruby sürümünü 3.3'e çekerek Fastlane "Support going away" hatasını önlüyoruz
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2'
+          ruby-version: '3.3'
           bundler-cache: true
 
       - name: Force Custom Fresh Install
@@ -173,4 +178,4 @@ jobs:
           MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
         run: |
           cd ios/App
-          bundle exec fastlane ios release
+          bundle exec fastlane release
