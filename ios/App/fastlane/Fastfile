@@ -38,9 +38,8 @@ platform :ios do
       workspace: "App.xcworkspace",
       scheme: "App",
       export_method: "app-store",
-      # ✨ Geçersiz parametreyi Fastlane'in resmi kilitlenme önleyici seçeneğiyle değiştirdik:
-      skip_package_repository_fetches: true,
-      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['APPLE_DEVELOPER_TEAM_ID']} CODE_SIGN_STYLE=Manual"
+      # Match tarafından indirilen profilleri otomatik olarak hedef bundle ID ile eşler
+      provisioning_profiles: Actions.lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING]
     )
 
     upload_to_testflight(
