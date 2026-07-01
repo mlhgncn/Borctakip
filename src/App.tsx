@@ -715,13 +715,13 @@ function PaymentCTA({ capacity, alreadyPaid, onConfirm, streak }: { capacity: nu
       </button>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => onConfirm && (window as any).appSetSheet?.({ type: "pay", mode: "partial" })} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
+        <button onClick={() => { onConfirm(); (window as any).appSetSheet?.({ type: "pay", mode: "partial" }); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
           Kısmi Öde
         </button>
-        <button onClick={() => onConfirm && (window as any).appSetSheet?.({ type: "pay", mode: "extra" })} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
+        <button onClick={() => { onConfirm(); (window as any).appSetSheet?.({ type: "pay", mode: "extra" }); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
           Ekstra Öde
         </button>
-        <button onClick={() => onConfirm && (window as any).appPerformSkip?.()} style={{ padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
+        <button onClick={() => { onConfirm(); (window as any).appPerformSkip?.(); }} style={{ padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
           Atla
         </button>
       </div>
