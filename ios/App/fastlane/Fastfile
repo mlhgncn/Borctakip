@@ -18,6 +18,14 @@ platform :ios do
       api_key: api_key
     )
 
+    update_project_provisioning(
+      xcodeproj: "App.xcodeproj",
+      target_filter: "App",
+      profile: lane_context[SharedValues::SIGH_PROFILE_PATH],
+      build_configuration: "Release",
+      code_signing_identity: "Apple Distribution"
+    )
+
     update_code_signing_settings(
       use_automatic_signing: false,
       path: "App.xcodeproj",
@@ -26,7 +34,7 @@ platform :ios do
       bundle_identifier: ENV["BUNDLE_ID"],
       profile_name: lane_context[SharedValues::SIGH_NAME],
       targets: ["App"],
-      build_configurations: ["Release", "Debug"]
+      build_configurations: ["Release"]
     )
 
     increment_build_number(
@@ -38,7 +46,7 @@ platform :ios do
       workspace: "App.xcworkspace",
       scheme: "App",
       export_method: "app-store",
-      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['APPLE_DEVELOPER_TEAM_ID']} PROVISIONING_PROFILE_SPECIFIER='#{lane_context[SharedValues::SIGH_NAME]}' CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution'"
+      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['APPLE_DEVELOPER_TEAM_ID']} CODE_SIGN_STYLE=Manual"
     )
 
     upload_to_testflight(
