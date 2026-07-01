@@ -1,94 +1,60 @@
-name: TestFlight Final Sabit
+name: Deploy to TestFlight
 
 on:
-  workflow_dispatch:
   push:
     branches:
-      - main
+      - main # Veya hangi branch'i kullanıyorsan (örn: master, develop)
 
 jobs:
-  ios:
-    permissions:
-      contents: write
-    runs-on: macos-latest
+  deploy:
+    runs-on: macos-14 # En kararlı Xcode sürümleri için macos-14 (veya 15) idealdir
 
     steps:
-      - name: Select Latest Available Xcode
-        run: |
-          if [ -d "/Applications/Xcode_26.5.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
-          else
-            LATEST_XCODE=$(ls -d /Applications/Xcode*.app | tail -n 1)
-            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ✨ ÖNCEKİ HATALARDAN KALAN BOZUK PROJE DOSYALARINI SIFIRLIYORUZ
-      - name: Reset Hard to Clean Project State
-        run: |
-          git reset --hard HEAD
-          git clean -fdx || true
-
-      - name: Setup Volta
-        uses: volta-cli/action@v4
+      # 1. Doğru Node.js Versiyonunun Kurulması (Node 22)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
+          cache: 'npm'
 
-      - name: Set up Ruby
+      # 2. Bağımlılıkların ve Web Paketinin Kurulması
+      - name: Install Dependencies & Build Web Project
+        run: |
+          npm ci
+          npm run build
+
+      # 3. CocoaPods Kurulumu ve Ruby Ortamı
+      - name: Setup Ruby and Fastlane
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2'
+          ruby-version: '3.3' # Güncel ve kararlı Ruby sürümü
           bundler-cache: true
 
-      - name: Force Custom Fresh Install
+      # 4. Capacitor iOS Senkronizasyonu
+      - name: Capacitor Sync iOS
         run: |
-          npm config set cache /Users/runner/.npm-custom-cache --global
-          rm -rf node_modules package-lock.json
-          npm install --legacy-peer-deps
-          npm install ajv@^8.0.0 ajv-keywords@^5.0.0 --save-dev --legacy-peer-deps
+          npx cap sync ios
 
-      - name: Build Web Assets
-        env:
-          CI: false
-        run: |
-          npm run build --if-present
-
-      # ✨ Bilinmeyen parametreyi kaldırıp sadece düz sync yapıyoruz
-      - name: Capacitor Sync
-        run: npx cap sync ios
-
+      # 5. Pod'ların Tamamen Temiz ve Doğru Hedefle Kurulması
       - name: Install CocoaPods
         run: |
           cd ios/App
-          if [ ! -f "Podfile" ]; then
-            echo "Podfile repoda bulunamadı! GitHub Actions sunucusunda elle oluşturuluyor..."
-            pod init
-            echo "platform :ios, '17.0'" > Podfile
-            echo "target 'App' do" >> Podfile
-            echo "  use_frameworks!" >> Podfile
-            echo "  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'" >> Podfile
-            echo "end" >> Podfile
-          fi
-          pod install --repo-update
+          pod deintegrate
+          pod install
           cd ../..
 
-      - name: Install Ruby Gems (Fastlane)
-        run: bundle install
-
-      - name: Build and upload to TestFlight
+      # 6. Fastlane ile TestFlight'a Gönderim
+      # CI=true ve FASTLANE_NON_INTERACTIVE=true prompt kilitlenmelerini engeller
+      - name: Run Fastlane Deploy
         env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
-          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-          FASTLANE_APPLE_ID: ${{ secrets.FASTLANE_APPLE_ID }}
-          APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
-          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          BUNDLE_ID: com.borctakip.mobile.app
-          MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
+          CI: true
+          FASTLANE_NON_INTERACTIVE: true
+          APPLE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APPLE_CONNECT_API_KEY_KEY_ID }}
+          APPLE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APPLE_CONNECT_API_KEY_ISSUER_ID }}
+          APPLE_CONNECT_API_KEY_KEY: ${{ secrets.APPLE_CONNECT_API_KEY_KEY }}
         run: |
           cd ios/App
-          bundle exec fastlane ios release
+          bundle exec fastlane ios beta # Fastfile içindeki lane adın neyse (örn: beta, deploy) onu yaz
