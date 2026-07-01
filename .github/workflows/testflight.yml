@@ -25,6 +25,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ✨ ÖNCEKİ HATALARDAN KALAN BOZUK PROJE DOSYALARINI SIFIRLIYORUZ
+      - name: Reset Hard to Clean Project State
+        run: |
+          git reset --hard HEAD
+          git clean -fdx || true
+
       - name: Setup Volta
         uses: volta-cli/action@v4
         with:
@@ -49,11 +55,9 @@ jobs:
         run: |
           npm run build --if-present
 
-      # ✨ BOZULMAYI ENGELLENEN KISIM: Ayarı Capacitor konfigürasyonuna gömüyoruz
-      - name: Capacitor Sync without Swift PM
-        run: |
-          # Capacitor'a Swift PM kullanmamasını, CocoaPods ile devam etmesini söylüyoruz
-          npx cap sync ios --no-interaction
+      # ✨ Bilinmeyen parametreyi kaldırıp sadece düz sync yapıyoruz
+      - name: Capacitor Sync
+        run: npx cap sync ios
 
       - name: Install CocoaPods
         run: |
