@@ -14,8 +14,10 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Select Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: List Available Xcode Versions and SDKs
+        run: |
+          ls /Applications/ | grep Xcode
+          xcodebuild -showsdkspplications/Xcode_16.2.app/Contents/Developer
 
       - name: Checkout repository
         uses: actions/checkout@v4
