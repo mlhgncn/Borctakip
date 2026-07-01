@@ -11,7 +11,7 @@ jobs:
     permissions:
       contents: write
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Select Xcode Version
@@ -19,6 +19,15 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Disable IPv6 (SPM hang fix)
+        run: |
+          networksetup -listallnetworkservices | tail -n +2 | while read -r service; do
+            sudo networksetup -setv6off "$service" || true
+          done
+
+      - name: Configure Git for SPM
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Setup Volta (Enforce Node 22 globally)
         uses: volta-cli/action@v4
@@ -32,77 +41,8 @@ jobs:
           bundler-cache: true
 
       - name: Force Custom Fresh Install
+        timeout-minutes: 10
         run: |
           npm config set cache /Users/runner/.npm-custom-cache --global
           rm -rf node_modules package-lock.json
-          npm install --legacy-peer-deps
-          npm install ajv@^8.0.0 ajv-keywords@^5.0.0 --save-dev --legacy-peer-deps
-
-      - name: Build Web Assets
-        env:
-          CI: false
-        run: npm run build --if-present
-
-      - name: Capacitor Sync
-        run: npx cap sync ios
-
-      - name: Install CocoaPods
-        run: |
-          cd ios/App
-          if [ ! -f "Podfile" ]; then
-            echo "Podfile yok, oluşturuluyor..."
-            cat > Podfile << 'EOF'
-          require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
-
-          platform :ios, '17.0'
-          use_frameworks!
-
-          def capacitor_pods
-            pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
-            pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
-          end
-
-          target 'App' do
-            capacitor_pods
-          end
-
-          post_install do |installer|
-            assertDeploymentTarget(installer)
-            installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
-              end
-            end
-          end
-          EOF
-          fi
-          pod install --repo-update
-          cd ../..
-
-      - name: Configure Git for SPM
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
-      - name: Pre-resolve SPM Dependencies
-        run: |
-          cd ios/App
-          for i in 1 2 3; do
-            timeout 240 xcodebuild -resolvePackageDependencies -workspace App.xcworkspace -scheme App && break
-            echo "Attempt $i failed or timed out, retrying..."
-            sleep 10
-          done
-
-      - name: Build and upload to TestFlight
-        timeout-minutes: 25
-        env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
-          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-          FASTLANE_APPLE_ID: ${{ secrets.FASTLANE_APPLE_ID }}
-          APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
-          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          BUNDLE_ID: com.borctakip.mobile.app
-          MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
-        run: |
-          cd ios/App
-          bundle exec fastlane ios release
+          np
