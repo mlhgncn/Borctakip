@@ -18,8 +18,6 @@ platform :ios do
       api_key: api_key
     )
 
-    # ❌ update_project_provisioning adımı hata fırlattığı için buradan tamamen kaldırıldı.
-
     update_code_signing_settings(
       use_automatic_signing: false,
       path: "App.xcodeproj",
@@ -40,8 +38,8 @@ platform :ios do
       workspace: "App.xcworkspace",
       scheme: "App",
       export_method: "app-store",
-      # ✨ Xcode'un harici paket indirme (Swift PM) döngüsünde kilitlenmesini engelleyen kritik komut kökü:
-      cl_options: "-disablePackageRepositoryCache",
+      # ✨ Geçersiz parametreyi Fastlane'in resmi kilitlenme önleyici seçeneğiyle değiştirdik:
+      skip_package_repository_fetches: true,
       xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['APPLE_DEVELOPER_TEAM_ID']} CODE_SIGN_STYLE=Manual"
     )
 
