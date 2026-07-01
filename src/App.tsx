@@ -5,7 +5,7 @@ import {
   Check, RotateCcw, Bell, Info, Sparkles, ArrowRight, CalendarCheck,
 } from "lucide-react";
 
-import { initAdMob, showBanner, removeBanner, showInterstitialWithFrequency } from "./admob";
+// Üstteki eski satırı sildik, tüm fonksiyonları içeren tek satır olarak bunu bıraktık:
 import { initAdMob, showBanner, removeBanner, showInterstitialWithFrequency, prepareRewarded, showRewarded, setAdPersonalization } from "./admob";
 import IAP, { isAdsRemoved, startRemoveAdsPurchase } from "./iap";
 import { requestPermission as requestNotifPerm, scheduleNotificationForDebt, cancelNotificationForDebt } from "./notifications";
