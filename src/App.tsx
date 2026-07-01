@@ -4,8 +4,6 @@ import {
   ShoppingBag, X, Trash2, Home, ListChecks, PieChart, User, Target, Flame, PartyPopper, TrendingDown,
   Check, RotateCcw, Bell, Info, Sparkles, ArrowRight, CalendarCheck,
 } from "lucide-react";
-
-// Üstteki eski satırı sildik, tüm fonksiyonları içeren tek satır olarak bunu bıraktık:
 import { initAdMob, showBanner, removeBanner, showInterstitialWithFrequency, prepareRewarded, showRewarded, setAdPersonalization } from "./admob";
 import IAP, { isAdsRemoved, startRemoveAdsPurchase } from "./iap";
 import { requestPermission as requestNotifPerm, scheduleNotificationForDebt, cancelNotificationForDebt } from "./notifications";
@@ -28,6 +26,7 @@ const COLORS = {
 const ICONS = { card: CreditCard, bank: Landmark, shopping: ShoppingBag };
 const ICON_COLORS = ["#6C5CE7", "#2E86F5", "#1FBF8F", "#C97B3D"];
 const SLICE_COLORS = ["#7C5CFC", "#4FACFE", "#34D399", "#FBBF24", "#F87171", "#C97B3D"];
+const DEFAULT_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917";
 
 const SEED_DEBTS = [
   { id: "1", title: "Kredi Kartı", subtitle: "Garanti BBVA", balance: 23450, originalBalance: 28000, rate: 4.25, icon: "card", colorIndex: 0 },
@@ -50,6 +49,7 @@ interface Debt {
   icon: string;
   colorIndex: number;
   dueDate?: string;
+  termMonths?: number;
 }
 
 interface PaymentRecord {
@@ -72,10 +72,13 @@ interface WorkingDebt {
   id: string;
   balance: number;
   rate: number;
+  icon: string;
+  termMonths?: number;
+  originalBalance?: number;
 }
 
 interface Celebration {
-  type: "debt-cleared" | "all-clear";
+  type: "debt-cleared" | "all-clear" | "payment-success";
   debt?: Debt;
 }
 
@@ -87,7 +90,10 @@ interface PageProps {
   progressRatio: number;
   capacity: number;
   alreadyPaidThisMonth: boolean;
-  confirmMonthlyPayment: () => void;
+  onConfirm: () => void;
+  onSkip: () => void;
+  onPartial: () => void;
+  onAdd: () => void;
   streak: number;
   strategy: string;
   setStrategy: (s: string) => void;
@@ -99,6 +105,7 @@ interface PageProps {
   deleteDebt: (id: string) => void;
   income: number;
   expense: number;
+  hasOutstandingDebts: boolean;
 }
 
 interface PlanPageProps {
@@ -115,12 +122,27 @@ function sortForStrategy(list: any[], strategy: string): any[] {
     : [...list].sort((a, b) => b.rate - a.rate);
 }
 
+function getMinimumPayment(debt: Debt): number {
+  if (debt.icon === "bank" && debt.termMonths && debt.termMonths > 0) {
+    const installment = (debt.originalBalance || debt.balance) / debt.termMonths;
+    return Math.min(Math.max(0, +installment.toFixed(2)), debt.balance);
+  }
+  return Math.min(debt.balance * 0.05, debt.balance);
+}
+
 // Full simulation that also tracks the month each individual debt reaches zero.
 function simulateDetailed(debts: Debt[], monthlyCapacity: number, strategy: string): SimulationResult {
   if (debts.length === 0) {
     return { months: 0, totalInterest: 0, payoffDate: new Date(), monthlyPayments: [], perDebtPayoffMonth: {}, remainingByMonth: [] };
   }
-  let working = debts.map((d) => ({ id: d.id, balance: d.balance, rate: d.rate / 100 }));
+  let working = debts.map((d) => ({
+    id: d.id,
+    balance: d.balance,
+    rate: d.rate / 100,
+    icon: d.icon,
+    termMonths: d.termMonths,
+    originalBalance: d.originalBalance,
+  }));
   let totalInterest = 0;
   const monthlyPayments: number[] = [];
   const remainingByMonth: number[] = [];
@@ -142,7 +164,8 @@ function simulateDetailed(debts: Debt[], monthlyCapacity: number, strategy: stri
 
     working.forEach((d) => {
       if (d.balance <= 0) return;
-      const minPay = Math.min(d.balance * 0.05, d.balance);
+      const targetDebt = debts.find((debt) => debt.id === d.id);
+      const minPay = targetDebt ? getMinimumPayment(targetDebt) : Math.min(d.balance * 0.05, d.balance);
       const pay = Math.min(minPay, capacity);
       d.balance -= pay;
       capacity -= pay;
@@ -181,6 +204,11 @@ function applyOneMonth(debts: Debt[], monthlyCapacity: number, strategy: string)
   let capacity = monthlyCapacity;
   const next = debts.map((d) => ({ ...d }));
 
+  const remainingBefore = next.reduce((s, d) => s + Math.max(0, d.balance), 0);
+  if (remainingBefore <= 0) {
+    return { next: next.map((d) => ({ ...d, balance: 0 })), clearedIds: [], paid: 0 };
+  }
+
   next.forEach((d) => {
     if (d.balance > 0) {
       const interest = d.balance * (d.rate / 100);
@@ -190,9 +218,9 @@ function applyOneMonth(debts: Debt[], monthlyCapacity: number, strategy: string)
 
   next.forEach((d) => {
     if (d.balance <= 0) return;
-    const minPay = Math.min(d.balance * 0.05, d.balance);
+    const minPay = getMinimumPayment(d);
     const pay = Math.min(minPay, capacity);
-    d.balance = +(d.balance - pay).toFixed(2);
+    d.balance = Math.max(0, +(d.balance - pay).toFixed(2));
     capacity -= pay;
   });
 
@@ -203,13 +231,14 @@ function applyOneMonth(debts: Debt[], monthlyCapacity: number, strategy: string)
     const pay = Math.min(d.balance, capacity);
     const target = next.find((x) => x.id === d.id);
     if (target) {
-      target.balance = +(target.balance - pay).toFixed(2);
+      target.balance = Math.max(0, +(target.balance - pay).toFixed(2));
     }
     capacity -= pay;
   }
 
+  const paid = monthlyCapacity - capacity;
   const clearedIds = next.filter((d, i) => d.balance <= 0.5 && debts[i].balance > 0.5).map((d) => d.id);
-  return { next: next.map((d) => ({ ...d, balance: Math.max(0, d.balance) })), clearedIds };
+  return { next: next.map((d) => ({ ...d, balance: Math.max(0, d.balance) })), clearedIds, paid };
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -230,7 +259,8 @@ export default function App() {
   const [expense, setExpense] = useState<number>(() => loadFromStorage("bp_expense", 18250));
   const [strategy, setStrategy] = useState<string>(() => loadFromStorage("bp_strategy", "avalanche"));
   const [streak, setStreak] = useState<number>(() => loadFromStorage("bp_streak", 0));
-  const [lastPaidMonth, setLastPaidMonth] = useState<string | null>(() => loadFromStorage("bp_lastPaidMonth", null));
+  const [maxDebtLimit, setMaxDebtLimit] = useState<number>(() => loadFromStorage("bp_maxDebtLimit", 4));
+  const [lastConfirmedPaymentDate, setLastConfirmedPaymentDate] = useState<string | null>(() => loadFromStorage("bp_lastConfirmedPaymentDate", loadFromStorage("bp_lastPaidMonth", null)));
   const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>(() => loadFromStorage("bp_history", []));
   const [adsEnabled, setAdsEnabled] = useState<boolean>(() => loadFromStorage("bp_ads_enabled", true));
     const [adPersonalization, setAdPersonalizationState] = useState<boolean>(() => loadFromStorage("bp_ad_personalization", true));
@@ -287,8 +317,9 @@ export default function App() {
   useEffect(() => { try { window.localStorage.setItem("bp_expense", JSON.stringify(expense)); } catch {} }, [expense]);
   useEffect(() => { try { window.localStorage.setItem("bp_strategy", JSON.stringify(strategy)); } catch {} }, [strategy]);
   useEffect(() => { try { window.localStorage.setItem("bp_streak", JSON.stringify(streak)); } catch {} }, [streak]);
-  useEffect(() => { try { window.localStorage.setItem("bp_lastPaidMonth", JSON.stringify(lastPaidMonth)); } catch {} }, [lastPaidMonth]);
+  useEffect(() => { try { window.localStorage.setItem("bp_lastConfirmedPaymentDate", JSON.stringify(lastConfirmedPaymentDate)); } catch {} }, [lastConfirmedPaymentDate]);
   useEffect(() => { try { window.localStorage.setItem("bp_history", JSON.stringify(paymentHistory)); } catch {} }, [paymentHistory]);
+  useEffect(() => { try { window.localStorage.setItem("bp_maxDebtLimit", JSON.stringify(maxDebtLimit)); } catch {} }, [maxDebtLimit]);
   useEffect(() => {
     // request notification permission on app start (best-effort)
     (async () => { try { await requestNotifPerm(); } catch (e) {} })();
@@ -309,7 +340,7 @@ export default function App() {
 
   const totalBalance = useMemo(() => debts.reduce((s, d) => s + d.balance, 0), [debts]);
   const totalOriginal = useMemo(() => debts.reduce((s, d) => s + (d.originalBalance || d.balance), 0), [debts]);
-  const progressRatio = totalOriginal > 0 ? 1 - totalBalance / totalOriginal : 0;
+  const progressRatio = totalOriginal > 0 ? Math.max(0, Math.min(1, 1 - totalBalance / totalOriginal)) : 0;
   const capacity = Math.max(0, income - expense);
 
   const planAvalanche = useMemo(() => simulateDetailed(debts, capacity, "avalanche"), [debts, capacity]);
@@ -320,7 +351,17 @@ export default function App() {
   const highestRateDebt = useMemo(() => (debts.length ? [...debts].sort((a, b) => b.rate - a.rate)[0] : null), [debts]);
   const lowestBalanceDebt = useMemo(() => (debts.length ? [...debts].sort((a, b) => a.balance - b.balance)[0] : null), [debts]);
 
-  const alreadyPaidThisMonth = lastPaidMonth === monthKey();
+  const alreadyPaidThisMonth = (() => {
+    if (!lastConfirmedPaymentDate) return false;
+    const paidAt = new Date(lastConfirmedPaymentDate);
+    const expiry = new Date(paidAt);
+    const day = expiry.getDate();
+    expiry.setMonth(expiry.getMonth() + 1);
+    if (expiry.getDate() !== day) {
+      expiry.setDate(0);
+    }
+    return new Date() < expiry;
+  })();
   const hasDebts = debts.length > 0;
 
   const deleteDebt = (id: string) => {
@@ -337,25 +378,35 @@ export default function App() {
     });
 
   // Wrap upsert to also schedule notification when dueDate provided
-  const saveDebtAndSchedule = (debt: Debt) => {
-    upsertDebt(debt);
+  const handleWatchRewardAd = async () => {
     try {
-      if (debt.dueDate) {
-        const due = new Date(debt.dueDate);
-        // schedule 1 day before at 10:00
-        const at = new Date(due);
-        at.setDate(at.getDate() - 1);
-        at.setHours(10, 0, 0, 0);
-        if (at.getTime() > Date.now()) {
-          scheduleNotificationForDebt(debt.id, `Ödeme hatırlatıcısı: ${debt.title}`, `Ödeme tarihi yaklaşıyor: ${debt.subtitle} — ${due.toLocaleDateString('tr-TR')}`, at);
-        }
-      } else {
-        // no due date -> cancel existing
-        cancelNotificationForDebt(debt.id);
+      const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || DEFAULT_REWARDED_AD_UNIT_ID;
+      await prepareRewarded(rewardedId);
+      const shown = await showRewarded(rewardedId);
+      if (!shown) {
+        alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
+        return;
+      }
+      setMaxDebtLimit(5);
+      setStreak((s) => s + 1);
+      setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
+      alert('Tebrikler! Ödül reklamı izlendi ve borç limiti 5’e yükseltildi.');
+    } catch (e) {
+      alert('Reklam yüklenirken bir sorun oluştu. Lütfen tekrar deneyin.');
+    }
+  };
+
+  const handleRemoveAds = async () => {
+    try {
+      const ok = await startRemoveAdsPurchase();
+      if (ok) {
+        setAdsEnabled(false);
+        alert('Reklamlar kaldırıldı (simülasyon). Gerçek cihazlarda IAP akışını tamamlayın.');
       }
     } catch (e) {}
   };
 
+<<<<<<< HEAD
   const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string; extra?: boolean }) => {
 
       
@@ -368,14 +419,18 @@ export default function App() {
   ];
 
     
+=======
+  const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string }) => {
+>>>>>>> 1bd1147 (Push local app changes for TestFlight build)
     if (paymentBeingProcessed) return;
     setPaymentBeingProcessed(true);
     try {
       if (opts?.skip) {
-        // record skip
-        setLastPaidMonth(monthKey());
-        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
-        setStreak(0);
+        setSheet(null);
+        return;
+      }
+
+      if (debts.every((d) => d.balance <= 0)) {
         setSheet(null);
         return;
       }
@@ -383,34 +438,17 @@ export default function App() {
       const payAmount = typeof amount === "number" ? amount : capacity;
 
       if (opts?.perDebtId) {
-        // add interest to all, then apply to target debt first, then distribute remainder by strategy
         const next = debts.map((d) => ({ ...d }));
-        next.forEach((d) => {
-          if (d.balance > 0) {
-            const interest = d.balance * (d.rate / 100);
-            d.balance = +(d.balance + interest).toFixed(2);
-          }
-        });
-        let remaining = payAmount;
         const targetIdx = next.findIndex((d) => d.id === opts.perDebtId);
+        let actualPaid = 0;
         if (targetIdx !== -1) {
-          const pay = Math.min(remaining, next[targetIdx].balance);
-          next[targetIdx].balance = +(next[targetIdx].balance - pay).toFixed(2);
-          remaining -= pay;
-        }
-        const ordered = sortForStrategy(next, strategy);
-        for (const od of ordered) {
-          if (remaining <= 0) break;
-          const t = next.find((x) => x.id === od.id);
-          if (!t || t.balance <= 0) continue;
-          const p = Math.min(t.balance, remaining);
-          t.balance = +(t.balance - p).toFixed(2);
-          remaining -= p;
+          const payment = Math.min(payAmount, next[targetIdx].balance);
+          next[targetIdx].balance = +(next[targetIdx].balance - payment).toFixed(2);
+          actualPaid = payment;
         }
         const clearedIds = next.filter((d, i) => d.balance <= 0.5 && debts[i].balance > 0.5).map((d) => d.id);
         setDebts(next.map((d) => ({ ...d, balance: Math.max(0, d.balance) })));
-        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: payAmount, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
-        setLastPaidMonth(monthKey());
+        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: actualPaid, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
         setStreak((s) => s + 1);
         if (clearedIds.length > 0) {
           const cleared = debts.find((d) => d.id === clearedIds[0]);
@@ -422,10 +460,9 @@ export default function App() {
       }
 
       // default: applyOneMonth behavior with provided amount
-      const { next, clearedIds } = applyOneMonth(debts, payAmount, strategy);
+      const { next, clearedIds, paid } = applyOneMonth(debts, payAmount, strategy);
       setDebts(next);
-      setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: payAmount, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
-      setLastPaidMonth(monthKey());
+      setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: paid, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
       setStreak((s) => s + 1);
       if (clearedIds.length > 0) {
         const cleared = debts.find((d) => d.id === clearedIds[0]);
@@ -441,12 +478,13 @@ export default function App() {
   };
 
   const confirmMonthlyPayment = () => {
-    if (alreadyPaidThisMonth || capacity <= 0 || !hasDebts) return;
-    const { next, clearedIds } = applyOneMonth(debts, capacity, strategy);
+    if (alreadyPaidThisMonth || capacity <= 0 || !hasDebts || totalBalance <= 0) return;
+    const { next, clearedIds, paid } = applyOneMonth(debts, capacity, strategy);
+    if (paid <= 0) return;
     setDebts(next);
     setStreak((s) => s + 1);
-    setLastPaidMonth(monthKey());
-    setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: capacity, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
+    setLastConfirmedPaymentDate(new Date().toISOString());
+    setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: paid, remainingAfter: next.reduce((s, d) => s + d.balance, 0) }]);
 
     if (clearedIds.length > 0) {
       const cleared = debts.find((d) => d.id === clearedIds[0]);
@@ -467,10 +505,11 @@ export default function App() {
     try { debts.forEach(d => { if (d.id) cancelNotificationForDebt(d.id); }); } catch (e) {}
     setDebts([]);
     setStreak(0);
-    setLastPaidMonth(null);
+    setLastConfirmedPaymentDate(null);
     setPaymentHistory([]);
   };
 
+<<<<<<< HEAD
   // --- REKLAM VE IAP FONKSİYONLARI ---
   const handleWatchRewardAd = async () => {
     try {
@@ -504,12 +543,22 @@ export default function App() {
   };
 
   // --- SAYFALAR DIZISI ---
+=======
+  const handleAddDebt = () => {
+    if (debts.length >= maxDebtLimit) {
+      alert(`Maksimum borç limiti ${maxDebtLimit}. Reklam izleyerek limiti artırabilirsiniz.`);
+      return;
+    }
+    setSheet({ type: 'add' });
+  };
+
+>>>>>>> 1bd1147 (Push local app changes for TestFlight build)
   const pages = [
-    <HomePage key="home" {...{ hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, confirmMonthlyPayment, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId: lowestBalanceDebt?.id, setSheet, deleteDebt, income, expense }} />,
+    <HomePage key="home" {...{ hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, onConfirm: () => setSheet({ type: 'monthlyPayment', selectedDebtId: debts[0]?.id, customAmount: '' }), onSkip: () => performPayment(undefined, { skip: true }), onPartial: () => { if (totalBalance <= 0) return; setSheet({ type: 'pay', mode: 'partial', debtId: debts[0]?.id }); }, onAdd: handleAddDebt, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId: lowestBalanceDebt?.id, setSheet, deleteDebt, income, expense, hasOutstandingDebts: totalBalance > 0 }} />,
     <PlanPage key="plan" {...{ debts, plan, strategy, capacity, hasDebts }} />,
     null,
     <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
-    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
+    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit }} />,
   ];
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
@@ -523,24 +572,38 @@ export default function App() {
         button { font-family: inherit; }
         input[type=range] { -webkit-appearance: none; }
       `}</style>
-      <div style={{ width: "100%", maxWidth: 430, minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative" }}>
-        <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 100px", animation: "fadeIn 0.25s ease" }} key={navIndex}>
+      <div style={{ width: "100%", maxWidth: 430, minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", margin: "0 auto", boxSizing: "border-box", paddingTop: "max(env(safe-area-inset-top, 16px), 16px)", paddingBottom: "max(env(safe-area-inset-bottom, 12px), 12px)", paddingLeft: "max(env(safe-area-inset-left, 16px), 16px)", paddingRight: "max(env(safe-area-inset-right, 16px), 16px)" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 100px", paddingTop: "calc(28px + env(safe-area-inset-top, 0px))", animation: "fadeIn 0.25s ease" }} key={navIndex}>
           {pages[navIndex]}
         </div>
 
-        <BottomNav index={navIndex} onTap={(i: number) => (i === 2 ? setSheet({ type: "add" }) : setNavIndex(i))} />
+        <BottomNav index={navIndex} onTap={(i: number) => (i === 2 ? handleAddDebt() : setNavIndex(i))} />
 
         {(sheet?.type === "add" || sheet?.type === "edit") && (
-          <AddEditSheet existing={sheet.debt} onClose={() => setSheet(null)} onSave={(d: Debt) => { saveDebtAndSchedule(d); setSheet(null); }} />
+          <AddEditSheet existing={sheet.debt} onClose={() => setSheet(null)} onSave={(d: Debt) => { upsertDebt(d); if (d.dueDate) { try { scheduleNotificationForDebt(d.id, `Ödeme hatırlatıcısı: ${d.title}`, `Son ödeme tarihi: ${d.dueDate}`, new Date(d.dueDate)); } catch (e) {} } setSheet(null); }} />
         )}
         {sheet?.type === "pay" && (
           <SheetWrapper onClose={() => setSheet(null)}>
-            <h3 style={{ color: COLORS.textPrimary, fontSize: 18, fontWeight: 800, margin: 0 }}>{sheet.mode === 'partial' ? 'Kısmi Ödeme' : sheet.mode === 'extra' ? 'Ekstra Ödeme' : 'Ödeme'}</h3>
+            <h3 style={{ color: COLORS.textPrimary, fontSize: 18, fontWeight: 800, margin: 0 }}>{sheet.mode === 'partial' ? 'Kısmi Ödeme' : 'Ödeme'}</h3>
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {sheet.mode === 'partial' && (
+                <div>
+                  <FieldLabel>Hangi borçtan öde</FieldLabel>
+                  <select
+                    style={{ ...inputStyle as React.CSSProperties, padding: '12px', borderRadius: 14 }}
+                    value={sheet.debtId || debts[0]?.id || ''}
+                    onChange={(e) => setSheet({ ...sheet, debtId: e.target.value })}
+                  >
+                    {debts.map((d) => (
+                      <option key={d.id} value={d.id}>{`${d.title} — ${d.subtitle} (${tl(d.balance)})`}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {sheet.mode !== 'skip' && (
                 <div>
                   <FieldLabel>Miktar (₺)</FieldLabel>
-                  <input style={inputStyle as React.CSSProperties} type="number" placeholder={sheet.mode === 'extra' ? 'Ekstra tutarı girin' : 'Ödenecek tutarı girin'} id="_payment_amount" />
+                  <input style={inputStyle as React.CSSProperties} type="number" placeholder="Ödenecek tutarı girin" id="_payment_amount" />
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8 }}>
@@ -551,17 +614,127 @@ export default function App() {
                     const el = document.getElementById('_payment_amount') as HTMLInputElement | null;
                     const raw = el?.value || '';
                     const num = parseFloat(raw.replace(',', '.')) || 0;
+
                     if (sheet.mode === 'partial') {
-                      if (num <= 0) return;
+                      if (!sheet.debtId) {
+                        alert('Lütfen bir borç seçin.');
+                        return;
+                      }
+                      if (num <= 0) {
+                        alert('Lütfen kısmi ödeme tutarını girin.');
+                        return;
+                      }
                       performPayment(num, { perDebtId: sheet.debtId });
-                    } else if (sheet.mode === 'extra') {
-                      const extra = num;
-                      const total = Math.max(0, capacity + extra);
-                      performPayment(total, { perDebtId: sheet.debtId });
                     }
                   } catch (e) {}
                 }} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`, color: '#fff' }}>Onayla</button>
               </div>
+            </div>
+          </SheetWrapper>
+        )}
+        {sheet?.type === 'monthlyPayment' && (
+          <SheetWrapper onClose={() => setSheet(null)}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div>
+                <h3 style={{ color: COLORS.textPrimary, fontSize: 20, fontWeight: 800, margin: 0 }}>Ödemeyi Yapılandır</h3>
+                <p style={{ color: COLORS.textSecondary, marginTop: 8, lineHeight: 1.6, maxWidth: 320 }}>Borçlarından birini seç, ödeme türüne göre tutarı belirle ve işlemi hızlıca tamamla.</p>
+              </div>
+              <button onClick={() => setSheet(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 8 }}><X size={22} color={COLORS.textSecondary} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {debts.map((d) => {
+                const selected = d.id === sheet.selectedDebtId;
+                const badge = d.icon === 'bank' ? 'Kredi Borcu' : d.icon === 'card' ? 'Kredi Kartı' : 'Borç';
+                return (
+                  <button key={d.id} onClick={() => setSheet({ ...sheet, selectedDebtId: d.id, customAmount: selected ? sheet.customAmount : '' })} style={{
+                    width: '100%', textAlign: 'left', padding: 18, borderRadius: 20, border: selected ? `1px solid ${COLORS.blue}` : `1px solid ${COLORS.stroke}`,
+                    background: selected ? COLORS.cardAlt : COLORS.card, color: COLORS.textPrimary, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12,
+                    boxShadow: selected ? '0 18px 35px rgba(79, 172, 254, 0.1)' : 'none', transition: 'all 0.2s ease',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{d.title}</div>
+                        <div style={{ color: COLORS.textSecondary, fontSize: 12, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.subtitle}</div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                        <span style={{ color: COLORS.textSecondary, fontSize: 11, fontWeight: 700 }}>{badge}</span>
+                        <span style={{ color: selected ? COLORS.blue : COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>{tl(d.balance)}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                      <span style={{ color: selected ? COLORS.blue : COLORS.textSecondary, fontSize: 12, fontWeight: 700 }}>{selected ? 'Seçili' : 'Seçmek için dokun'}</span>
+                      <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${selected ? COLORS.blue : COLORS.stroke}`, background: selected ? COLORS.blue : 'transparent' }} />
+                    </div>
+                  </button>
+                );
+              })}
+
+              {sheet.selectedDebtId && (() => {
+                const selectedDebt = debts.find((d) => d.id === sheet.selectedDebtId);
+                if (!selectedDebt) return null;
+
+                const installment = selectedDebt.icon === 'bank' ? getMinimumPayment(selectedDebt) : 0;
+                return (
+                  <div style={{ background: COLORS.cardAlt, borderRadius: 24, padding: 18, border: `1px solid ${COLORS.stroke}`, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ color: COLORS.textSecondary, fontSize: 12 }}>Seçili Borç</div>
+                        <div style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: 800, marginTop: 6 }}>{selectedDebt.title}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ color: COLORS.textSecondary, fontSize: 12 }}>Kalan</div>
+                        <div style={{ color: COLORS.textPrimary, fontSize: 17, fontWeight: 800, marginTop: 6 }}>{tl(selectedDebt.balance)}</div>
+                      </div>
+                    </div>
+                    {selectedDebt.icon === 'bank' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>Bu kredi borcu için 1 taksit</span>
+                        <span style={{ color: COLORS.green, fontSize: 20, fontWeight: 800 }}>{tl(installment)}</span>
+                        <div style={{ color: COLORS.textSecondary, fontSize: 12 }}>Tutar kredi borcundan otomatik olarak düşülecek.</div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <FieldLabel>Ödemek istediğiniz tutarı girin</FieldLabel>
+                        <input style={{ ...inputStyle as React.CSSProperties, transition: 'all 0.3s ease' }} value={sheet.customAmount ?? ''} onChange={(e) => setSheet({ ...sheet, customAmount: e.target.value })} inputMode="decimal" placeholder="Ödemek istediğiniz tutarı girin" />
+                        <div style={{ color: COLORS.textSecondary, fontSize: 12 }}>Kredi kartı borcun için dilediğin tutarı seçebilirsin.</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <button onClick={() => {
+                const selectedDebt = debts.find((d) => d.id === sheet.selectedDebtId);
+                if (!selectedDebt) {
+                  alert('Önce bir borç seçin.');
+                  return;
+                }
+
+                if (selectedDebt.icon === 'bank') {
+                  const installment = getMinimumPayment(selectedDebt);
+                  if (installment <= 0) {
+                    alert('Bu borç için ödenecek tutar hesaplanamadı.');
+                    return;
+                  }
+                  performPayment(installment, { perDebtId: selectedDebt.id });
+                  setCelebration({ type: 'payment-success', debt: selectedDebt });
+                  setSheet(null);
+                  return;
+                }
+
+                const raw = (sheet.customAmount || '').toString();
+                const amount = parseFloat(raw.replace(',', '.')) || 0;
+                if (amount <= 0) {
+                  alert('Lütfen geçerli bir ödeme tutarı girin.');
+                  return;
+                }
+                performPayment(amount, { perDebtId: selectedDebt.id });
+                setCelebration({ type: 'payment-success', debt: selectedDebt });
+                setSheet(null);
+              }} style={{ width: '100%', padding: '16px', borderRadius: 18, border: 'none', background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', boxShadow: '0 18px 36px rgba(124,92,252,0.18)' }}>
+                Ödemeyi Tamamla
+              </button>
             </div>
           </SheetWrapper>
         )}
@@ -575,7 +748,7 @@ export default function App() {
 // HOME PAGE
 // =============================================================================
 function HomePage(props: PageProps) {
-  const { hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, confirmMonthlyPayment, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId, setSheet, deleteDebt, income, expense } = props;
+  const { hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, onConfirm, onSkip, onPartial, onAdd, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId, setSheet, deleteDebt, income, expense } = props;
 
   return (
     <>
@@ -585,12 +758,12 @@ function HomePage(props: PageProps) {
       ) : (
         <>
           <SummaryCard totalBalance={totalBalance} plan={plan} progressRatio={progressRatio} />
-          <PaymentCTA capacity={capacity} alreadyPaid={alreadyPaidThisMonth} onConfirm={confirmMonthlyPayment} streak={streak} />
+          <PaymentCTA capacity={capacity} alreadyPaid={alreadyPaidThisMonth} onConfirm={onConfirm} onSkip={onSkip} onPartial={onPartial} streak={streak} hasOutstandingDebts={totalBalance > 0} />
           <StrategyCard strategy={strategy} setStrategy={setStrategy} highestRateDebt={highestRateDebt} lowestBalanceDebt={lowestBalanceDebt} interestDelta={interestDelta} />
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "24px 0 10px" }}>
             <h2 style={{ color: COLORS.textPrimary, fontSize: 20, fontWeight: 800, margin: 0 }}>Borçlarım</h2>
-            <button onClick={() => setSheet({ type: "add" })} style={{ background: "none", border: "none", color: COLORS.purple, fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+            <button onClick={onAdd} style={{ background: "none", border: "none", color: COLORS.purple, fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
               <Plus size={16} /> Borç Ekle
             </button>
           </div>
@@ -694,26 +867,24 @@ function InfoRow({ icon: Icon, label, value, color }: { icon: React.FC<any>; lab
   );
 }
 
-function PaymentCTA({ capacity, alreadyPaid, onConfirm, streak }: { capacity: number; alreadyPaid: boolean; onConfirm: () => void; streak: number }) {
+function PaymentCTA({ capacity, alreadyPaid, onConfirm, onSkip, onPartial, streak, hasOutstandingDebts }: { capacity: number; alreadyPaid: boolean; onConfirm: () => void; onSkip: () => void; onPartial: () => void; streak: number; hasOutstandingDebts: boolean }) {
+  if (!hasOutstandingDebts) {
+    return (
+      <div style={{ marginTop: 14, background: `${COLORS.green}14`, border: `1px solid ${COLORS.green}33`, borderRadius: 20, padding: 18, fontSize: 13, color: COLORS.textSecondary }}>
+        Tüm borçlar kapatıldı. Yeni bir borç ekleyerek ödemeye devam edebilirsin.
+      </div>
+    );
+  }
+
   if (capacity <= 0) {
     return (
-      <div style={{ marginTop: 14, background: `${COLORS.red}14`, border: `1px solid ${COLORS.red}33`, borderRadius: 16, padding: 14, fontSize: 13, color: COLORS.textSecondary }}>
+      <div style={{ marginTop: 14, background: `${COLORS.red}14`, border: `1px solid ${COLORS.red}33`, borderRadius: 20, padding: 18, fontSize: 13, color: COLORS.textSecondary }}>
         Ödeme kapasiten 0 ₺. Ayarlar'dan gelir/gider bilgini güncelleyerek aylık ödeme planını aktif et.
       </div>
     );
   }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <button onClick={onConfirm} disabled={alreadyPaid} style={{
-        width: "100%", marginTop: 14, padding: "16px", borderRadius: 18, border: "none", cursor: alreadyPaid ? "default" : "pointer",
-        background: alreadyPaid ? COLORS.cardAlt : `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`,
-        color: alreadyPaid ? COLORS.textSecondary : "#fff", fontWeight: 700, fontSize: 14,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-        animation: alreadyPaid ? "none" : "pulseRing 2.4s infinite",
-      }}>
-        {alreadyPaid ? <><Check size={18} /> Bu ayın ödemesi onaylandı{streak > 1 ? ` · ${streak} aylık seri 🔥` : ""}</> : <>Bu Ayın Ödemesini Onayla — {tl(capacity)}</>}
-      </button>
 
+<<<<<<< HEAD
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => { onConfirm(); (window as any).appSetSheet?.({ type: "pay", mode: "partial" }); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
           Kısmi Öde
@@ -722,6 +893,29 @@ function PaymentCTA({ capacity, alreadyPaid, onConfirm, streak }: { capacity: nu
           Ekstra Öde
         </button>
         <button onClick={() => { onConfirm(); (window as any).appPerformSkip?.(); }} style={{ padding: "10px", borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
+=======
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+      <button onClick={onConfirm} disabled={alreadyPaid} style={{
+        width: "100%", padding: "18px", borderRadius: 22, border: "none", cursor: alreadyPaid ? "default" : "pointer",
+        background: alreadyPaid ? COLORS.cardAlt : `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`,
+        color: "#fff", fontWeight: 800, fontSize: 16, boxShadow: alreadyPaid ? "none" : "0 18px 40px rgba(124, 92, 252, 0.2)",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease",
+      }}>
+        {alreadyPaid ? "Bu ayın ödemesi onaylandı" : "Ödeme Yap"}
+      </button>
+      {!alreadyPaid && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", color: COLORS.textSecondary, fontSize: 13, padding: "0 6px" }}>
+          <span>Mevcut ödeme kapasitesi</span>
+          <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{tl(capacity)}</span>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={onPartial} style={{ flex: 1, padding: "12px", borderRadius: 16, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
+          Kısmi Öde
+        </button>
+        <button onClick={onSkip} style={{ flex: 1, padding: "12px", borderRadius: 16, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
+>>>>>>> 1bd1147 (Push local app changes for TestFlight build)
           Atla
         </button>
       </div>
@@ -789,11 +983,11 @@ function DebtList({ debts, priorityId, strategy, onEdit, onDelete }: { debts: De
               <div style={{ width: 44, height: 44, borderRadius: "50%", background: `${iconColor}2E`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <Icon size={20} color={iconColor} />
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>{d.title}</div>
-                <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 2 }}>{d.subtitle}</div>
+              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+                <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.subtitle}</div>
               </div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12, minWidth: 84 }}>
                 <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>{tl(d.balance)}</div>
                 <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 2 }}>%{d.rate.toFixed(2)}</div>
               </div>
@@ -803,9 +997,6 @@ function DebtList({ debts, priorityId, strategy, onEdit, onDelete }: { debts: De
                 </span>
               )}
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button onClick={(e) => { e.stopPropagation(); (window as any).appSetSheet?.({ type: 'pay', mode: 'extra', debtId: d.id }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: COLORS.textSecondary }} aria-label="EkstraÖde">
-                  <ArrowRight size={16} />
-                </button>
                 <button onClick={(e) => { e.stopPropagation(); onDelete(d.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: COLORS.textSecondary }} aria-label="Sil">
                   <Trash2 size={16} />
                 </button>
@@ -830,7 +1021,6 @@ function MonthlyPlanCard({ plan, capacity }: { plan: SimulationResult; capacity:
     <div style={{ flex: 1, background: COLORS.card, border: `1px solid ${COLORS.stroke}`, borderRadius: 20, padding: 16, height: 280, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 13 }}>Aylık Ödeme Planı</span>
-        <ChevronRight size={16} color={COLORS.textSecondary} />
       </div>
       <div style={{ color: COLORS.purple, fontWeight: 800, fontSize: 20, margin: "6px 0 16px" }}>{tl(capacity)} / ay</div>
       <div style={{ flex: 1, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
@@ -870,7 +1060,7 @@ function CapacityCard({ capacity, income, expense }: { capacity: number; income:
           <path d={`M 15 85 A ${r} ${r} 0 0 1 135 85`} fill="none" stroke={COLORS.stroke} strokeWidth="14" strokeLinecap="round" />
           <path d={`M 15 85 A ${r} ${r} 0 0 1 135 85`} fill="none" stroke="url(#arcGrad)" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${c * ratio} ${c}`} style={{ transition: "stroke-dasharray 0.6s ease" }} />
         </svg>
-        <div style={{ position: "absolute", top: 32, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+        <div style={{ position: "absolute", top: 14, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", lineHeight: 1.1 }}>
           <span style={{ color: COLORS.textSecondary, fontSize: 11 }}>Kullanılabilir</span>
           <span style={{ color: COLORS.textPrimary, fontSize: 17, fontWeight: 800 }}>{tl(capacity)}</span>
           <span style={{ color: COLORS.textSecondary, fontSize: 11 }}>Aylık</span>
@@ -1129,9 +1319,10 @@ interface AyarlarPageProps {
   setAdPersonalizationState?: (b: boolean) => void;
   handleWatchRewardAd?: () => void;
   handleRemoveAds?: () => void;
+  maxDebtLimit: number;
 }
 
-function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }: AyarlarPageProps & { adPersonalization?: boolean; setAdPersonalizationState?: (b: boolean) => void; handleWatchRewardAd?: () => void; handleRemoveAds?: () => void }) {
+function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit }: AyarlarPageProps) {
   const [i, setI] = useState(income.toString());
   const [e, setE] = useState(expense.toString());
   const [notif, setNotif] = useState(true);
@@ -1179,8 +1370,23 @@ function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStra
         <ToggleRow icon={Bell} label="Ödeme hatırlatmaları" sub="Her ay ödeme zamanı geldiğinde bildirim al" value={notif} onChange={setNotif} />
         <ToggleRow icon={Info} label="Reklamları Göster" sub="Uygulamadaki reklamları aç/kapat" value={adsEnabled} onChange={(v: boolean) => setAdsEnabled(v)} />
         <ToggleRow icon={User} label="Reklam Kişiselleştirme" sub="Kişiselleştirilmiş reklamlar gösterilsin mi" value={!!adPersonalization} onChange={(v: boolean) => setAdPersonalizationState && setAdPersonalizationState(v)} />
-        <div style={{ padding: 12, display: 'flex', gap: 8 }}>
-          <button onClick={() => handleWatchRewardAd && handleWatchRewardAd()} style={{ flex: 1, padding: '10px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: 'transparent', color: COLORS.purple, cursor: 'pointer' }}>Reklam İzle — Ödül Al</button>
+        <div style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => handleWatchRewardAd && handleWatchRewardAd()}
+            disabled={maxDebtLimit >= 5}
+            style={{
+              flex: 1,
+              padding: '10px',
+              borderRadius: 12,
+              border: `1px solid ${COLORS.stroke}`,
+              background: maxDebtLimit >= 5 ? COLORS.cardAlt : 'transparent',
+              color: maxDebtLimit >= 5 ? COLORS.textSecondary : COLORS.purple,
+              cursor: maxDebtLimit >= 5 ? 'not-allowed' : 'pointer',
+              opacity: maxDebtLimit >= 5 ? 0.6 : 1,
+            }}
+          >
+            {maxDebtLimit >= 5 ? `Maksimum limite ulaşıldı (${maxDebtLimit}/5)` : 'Reklam İzle — Ödül Al'}
+          </button>
           <button onClick={() => handleRemoveAds && handleRemoveAds()} style={{ padding: '10px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: COLORS.purple, color: '#fff', cursor: 'pointer' }}>{isAdsRemoved() ? 'Reklamlar Kaldırıldı' : 'Reklamları Kaldır'}</button>
         </div>
       </div>
@@ -1253,7 +1459,7 @@ function BottomNav({ index, onTap }: { index: number; onTap: (i: number) => void
     { icon: User, label: "Ayarlar" },
   ];
   return (
-    <div style={{ position: "sticky", bottom: 0, background: COLORS.card, borderTop: `1px solid ${COLORS.stroke}`, display: "flex", justifyContent: "space-around", alignItems: "center", padding: "10px 0" }}>
+    <div style={{ position: "sticky", bottom: 0, background: COLORS.card, borderTop: `1px solid ${COLORS.stroke}`, display: "flex", justifyContent: "space-around", alignItems: "center", padding: "10px 0", paddingBottom: "calc(10px + env(safe-area-inset-bottom, 10px))" }}>
       {items.map((item, i) => {
         if (i === 2) {
           return (
@@ -1310,11 +1516,13 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
   const [balance, setBalance] = useState(existing?.balance?.toString() || "");
   const [rate, setRate] = useState(existing?.rate?.toString() || "");
   const [icon, setIcon] = useState(existing?.icon || "card");
+  const [termMonths, setTermMonths] = useState(existing?.termMonths?.toString() || "");
   const [dueDate, setDueDate] = useState(existing?.dueDate ? (existing.dueDate.slice(0,10)) : "");
 
   const save = () => {
     const balNum = parseFloat(balance.replace(",", "."));
     const rateNum = parseFloat(rate.replace(",", ".")) || 0;
+    const termNum = parseInt(termMonths, 10);
     if (!title.trim() || !balNum || balNum <= 0) return;
     onSave({
       id: existing?.id || crypto.randomUUID(),
@@ -1324,6 +1532,7 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
       originalBalance: existing?.originalBalance ?? balNum,
       rate: rateNum,
       icon,
+      termMonths: icon === "bank" && termNum > 0 ? termNum : undefined,
       dueDate: dueDate ? `${dueDate}` : undefined,
       colorIndex: existing?.colorIndex ?? Math.floor(Math.random() * 4),
     });
@@ -1356,7 +1565,7 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
         </div>
         <div>
           <FieldLabel>Tür</FieldLabel>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: 'wrap' }}>
             {[["card", CreditCard, "Kart"], ["bank", Landmark, "Kredi"], ["shopping", ShoppingBag, "Alışveriş"]].map(([key, Icon, label]) => {
               const selected = icon === key;
               return (
@@ -1371,6 +1580,12 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
             })}
           </div>
         </div>
+        {icon === 'bank' && (
+          <div>
+            <FieldLabel>Vade (ay)</FieldLabel>
+            <input style={inputStyle as React.CSSProperties} value={termMonths} onChange={(e) => setTermMonths(e.target.value)} inputMode="numeric" placeholder="12" />
+          </div>
+        )}
         <div>
           <FieldLabel>Ödeme Tarihi</FieldLabel>
           <input style={inputStyle as React.CSSProperties} value={dueDate} onChange={(e) => setDueDate(e.target.value)} type="date" />
@@ -1394,25 +1609,32 @@ function CelebrationModal({ data, onClose }: { data: Celebration; onClose: () =>
   const confettiPieces = useRef(
     Array.from({ length: 18 }, (_, i) => ({ left: Math.random() * 100, delay: Math.random() * 0.4, color: [COLORS.purple, COLORS.blue, COLORS.green, COLORS.amber][i % 4] }))
   ).current;
+  const isPaymentSuccess = data.type === "payment-success";
   const isAllClear = data.type === "all-clear";
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)" }}>
-      <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
-        {confettiPieces.map((p, i) => (
-          <div key={i} style={{ position: "absolute", left: `${p.left}%`, top: -20, width: 8, height: 8, borderRadius: 2, background: p.color, animation: `confettiFall 1.6s ease-in ${p.delay}s forwards` }} />
-        ))}
-      </div>
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.stroke}`, borderRadius: 24, padding: 28, width: "85%", maxWidth: 340, textAlign: "center", animation: "pop 0.4s ease", position: "relative", zIndex: 1 }}>
-        <div style={{ width: 64, height: 64, borderRadius: "50%", background: `${COLORS.green}26`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-          <PartyPopper size={28} color={COLORS.green} />
+      {!isPaymentSuccess && (
+        <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
+          {confettiPieces.map((p, i) => (
+            <div key={i} style={{ position: "absolute", left: `${p.left}%`, top: -20, width: 8, height: 8, borderRadius: 2, background: p.color, animation: `confettiFall 1.6s ease-in ${p.delay}s forwards` }} />
+          ))}
         </div>
-        <h3 style={{ color: COLORS.textPrimary, fontSize: 19, fontWeight: 800, margin: "0 0 8px" }}>{isAllClear ? "Tebrikler, borçsuzsun! 🎉" : "Bir borcu daha kapattın!"}</h3>
-        <p style={{ color: COLORS.textSecondary, fontSize: 14, lineHeight: 1.5, margin: "0 0 20px" }}>
-          {isAllClear ? "Tüm borçlarını kapattın. Bu büyük bir başarı — finansal özgürlüğe ulaştın." : `${data.debt?.title} (${data.debt?.subtitle}) bakiyesini sıfırladın. Bir sonraki hedefe devam!`}
+      )}
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.stroke}`, borderRadius: 24, padding: 28, width: "85%", maxWidth: 360, textAlign: "center", animation: "pop 0.4s ease", position: "relative", zIndex: 1 }}>
+        <div style={{ width: 72, height: 72, borderRadius: "50%", background: isPaymentSuccess ? `${COLORS.blue}26` : `${COLORS.green}26`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+          {isPaymentSuccess ? <Check size={32} color={COLORS.blue} /> : <PartyPopper size={28} color={COLORS.green} />}
+        </div>
+        <h3 style={{ color: COLORS.textPrimary, fontSize: 20, fontWeight: 800, margin: "0 0 10px" }}>{isPaymentSuccess ? "Tebrikler! Ödemeniz alındı." : isAllClear ? "Tebrikler, borçsuzsun! 🎉" : "Bir borcu daha kapattın!"}</h3>
+        <p style={{ color: COLORS.textSecondary, fontSize: 14, lineHeight: 1.6, margin: "0 0 22px" }}>
+          {isPaymentSuccess
+            ? "Ödeme başarıyla tamamlandı. Finansal hedeflerine bir adım daha yaklaştın."
+            : isAllClear
+              ? "Tüm borçlarını kapattın. Bu büyük bir başarı — finansal özgürlüğe ulaştın."
+              : `${data.debt?.title} (${data.debt?.subtitle}) bakiyesini sıfırladın. Bir sonraki hedefe geçebilirsin!`}
         </p>
-        <button onClick={onClose} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", cursor: "pointer", background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`, color: "#fff", fontWeight: 700, fontSize: 14 }}>
-          Harika!
+        <button onClick={onClose} style={{ width: "100%", padding: "14px", borderRadius: 16, border: "none", cursor: "pointer", background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`, color: "#fff", fontWeight: 700, fontSize: 14 }}>
+          Tamam
         </button>
       </div>
     </div>
