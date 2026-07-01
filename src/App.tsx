@@ -359,26 +359,32 @@ export default function App() {
   const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string; extra?: boolean }) => {
 
       const handleWatchRewardAd = async () => {
-        try {
-          const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || "";
-          if (!rewardedId) {
-            alert('Rewarded Ad birimi ayarlı değil.');
-            return;
-          }
-          await prepareRewarded(rewardedId);
-          const shown = await showRewarded(rewardedId);
-          if (shown) {
-            // grant a small in-app reward: here we add 1 streak as a lightweight example
-            setStreak((s) => s + 1);
-            setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
-            alert('Teşekkürler — küçük bir ödül kazandınız. Analizlerinize +1 seri eklendi.');
-          } else {
-            alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
-          }
-        } catch (e) {
-          // ignore
-        }
-      };
+    try {
+      const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || "";
+      if (!rewardedId) {
+        alert('Rewarded Ad birimi ayarlı değil.');
+        return;
+      }
+      await prepareRewarded(rewardedId);
+      const shown = await showRewarded(rewardedId);
+      if (shown) {
+        setStreak((s) => s + 1);
+        setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0) }]);
+        alert('Teşekkürler — küçük bir ödül kazandınız. Analizlerinize +1 seri eklendi.');
+      } else {
+        alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // 2. HEMEN ALTINDAKİ SATIR:
+  const pages = [
+    null,
+    <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
+    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
+  ];
 
       const handleRemoveAds = async () => {
         try {
