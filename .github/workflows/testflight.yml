@@ -49,13 +49,16 @@ jobs:
         run: |
           npm run build --if-present
 
-      # ✨ KİLİTLENMEYİ ÇÖZEN ADIM: Xcode'un harici SPM paket yükleyicisini askıya alıyoruz
-      - name: Disable Xcode Swift Package Manager Fetching
-        run: |
-          defaults write com.apple.dt.Xcode IDEPackageSupportUseBuiltinSCM YES
-
       - name: Capacitor Sync
         run: npx cap sync ios
+
+      # ✨ Xcode'un o internetten indirme döngüsünü tamamen yok ediyoruz
+      - name: Remove Swift Package Dependency to Bypass Xcode Hang
+        run: |
+          cd ios/App
+          sed -i '' '/packageReferences/,/\];/d' App.xcodeproj/project.pbxproj || true
+          sed -i '' '/packageProductDependencies/,/\];/d' App.xcodeproj/project.pbxproj || true
+          cd ../..
 
       - name: Install CocoaPods
         run: |
@@ -88,6 +91,5 @@ jobs:
           BUNDLE_ID: com.borctakip.mobile.app
           MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
         run: |
-          # ✨ Fastlane'in yapılandırma dosyalarını bulabilmesi için doğru klasöre geçiş yapıyoruz
           cd ios/App
           bundle exec fastlane ios release
