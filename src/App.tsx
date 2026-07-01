@@ -471,7 +471,7 @@ export default function App() {
     setPaymentHistory([]);
   };
 
-  // --- REKLAM VE IAP FONKSİYONLARI (DOĞRU SCOPE) ---
+  // --- REKLAM VE IAP FONKSİYONLARI ---
   const handleWatchRewardAd = async () => {
     try {
       const rewardedId = process.env.REACT_APP_ADMOB_REWARDED_ID || "";
@@ -505,15 +505,12 @@ export default function App() {
 
   // --- SAYFALAR DIZISI ---
   const pages = [
-
-  const pages = [
     <HomePage key="home" {...{ hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, confirmMonthlyPayment, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId: lowestBalanceDebt?.id, setSheet, deleteDebt, income, expense }} />,
     <PlanPage key="plan" {...{ debts, plan, strategy, capacity, hasDebts }} />,
     null,
     <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
     <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
   ];
-
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
       <style>{`
