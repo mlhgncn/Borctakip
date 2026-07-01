@@ -18,13 +18,7 @@ platform :ios do
       api_key: api_key
     )
 
-    update_project_provisioning(
-      xcodeproj: "App.xcodeproj",
-      target_filter: "App",
-      profile: lane_context[SharedValues::SIGH_PROFILE_PATH],
-      build_configuration: "Release",
-      code_signing_identity: "Apple Distribution"
-    )
+    # ❌ update_project_provisioning adımı hata fırlattığı için buradan tamamen kaldırıldı.
 
     update_code_signing_settings(
       use_automatic_signing: false,
@@ -46,6 +40,8 @@ platform :ios do
       workspace: "App.xcworkspace",
       scheme: "App",
       export_method: "app-store",
+      # ✨ Xcode'un harici paket indirme (Swift PM) döngüsünde kilitlenmesini engelleyen kritik komut kökü:
+      cl_options: "-disablePackageRepositoryCache",
       xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['APPLE_DEVELOPER_TEAM_ID']} CODE_SIGN_STYLE=Manual"
     )
 
