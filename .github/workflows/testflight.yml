@@ -87,4 +87,7 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           BUNDLE_ID: com.borctakip.mobile.app
           MATCH_GIT_URL: "https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/mlhgncn/ios-certificates.git"
-        run: bundle exec fastlane ios release
+        run: |
+          # ✨ Fastlane'in yapılandırma dosyalarını bulabilmesi için doğru klasöre geçiş yapıyoruz
+          cd ios/App
+          bundle exec fastlane ios release
