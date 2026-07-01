@@ -379,23 +379,26 @@ export default function App() {
     }
   };
 
-  // 2. HEMEN ALTINDAKİ SATIR:
-  
+  const handleRemoveAds = async () => {
+    try {
+      const success = await startRemoveAdsPurchase();
+      if (success) {
+        setAdsEnabled(false);
+        alert('Reklamlar başarıyla kaldırıldı! Teşekkür ederiz.');
+      }
+    } catch (e) {
+      alert('Satın alma esnasında bir hata oluştu.');
+    }
+  };
 
-     const handleRemoveAds = async () => {
-        try {
-          const ok = await startRemoveAdsPurchase();
-          if (ok) {
-            setAdsEnabled(false);
-            alert('Reklamlar kaldırıldı (simülasyon). Gerçek cihazlarda IAP akışını tamamlayın.');
-          }
-        } catch (e) {}
-      };
-    const pages = [
+  // --- SAYFALAR DIZISI ---
+  const pages = [
     null,
     <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
     <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds }} />,
   ];
+
+    
     if (paymentBeingProcessed) return;
     setPaymentBeingProcessed(true);
     try {
