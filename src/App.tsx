@@ -383,9 +383,9 @@ export default function App() {
   };
 
   const handleCelebrationClose = async () => {
-    const isPaymentSuccess = celebration?.type === "payment-success";
+    const isPaymentCelebration = celebration && ["debt-cleared", "all-clear"].includes(celebration.type);
     setCelebration(null);
-    if (!isPaymentSuccess) return;
+    if (!isPaymentCelebration) return;
     await showPostPaymentInterstitial();
     setNavIndex(0);
   };
