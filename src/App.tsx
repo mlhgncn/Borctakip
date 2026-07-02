@@ -1536,13 +1536,22 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
   const [icon, setIcon] = useState(existing?.icon || "card");
   const [termMonths, setTermMonths] = useState(existing?.termMonths?.toString() || "");
   const [dueDate, setDueDate] = useState(existing?.dueDate ? (existing.dueDate.slice(0,10)) : "");
-  const [testNotif, setTestNotif] = useState(false);
+  // debug test notification removed
 
   const save = () => {
     const balNum = parseFloat(balance.replace(",", "."));
     const rateNum = parseFloat(rate.replace(",", ".")) || 0;
     const termNum = parseInt(termMonths, 10);
-    if (!title.trim() || !balNum || balNum <= 0) return;
+    if (!title.trim()) { alert('Lütfen borç adı girin.'); return; }
+    if (!subtitle.trim()) { alert('Lütfen kurum/başlık girin.'); return; }
+    if (!balNum || balNum <= 0) { alert('Lütfen geçerli bir bakiye girin.'); return; }
+    if (isNaN(rateNum)) { alert('Lütfen geçerli bir faiz oranı girin.'); return; }
+    if (!dueDate) { alert('Lütfen ödeme tarihini seçin.'); return; }
+    if (!icon) { alert('Lütfen borç türünü seçin.'); return; }
+    if (icon === 'bank') {
+      const termNum = parseInt(termMonths, 10);
+      if (!termNum || termNum <= 0) { alert('Lütfen vade ay sayısını girin.'); return; }
+    }
     const debtToSave = {
       id: existing?.id || crypto.randomUUID(),
       title: title.trim(),
@@ -1556,18 +1565,7 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
       colorIndex: existing?.colorIndex ?? Math.floor(Math.random() * 4),
     };
     onSave(debtToSave);
-    if ((testNotif)) {
-      try {
-        // cancel any real-date notification scheduled by parent, then schedule a quick test notification
-        cancelNotificationForDebt(debtToSave.id).catch(() => {});
-        scheduleNotificationForDebt(debtToSave.id, `Ödeme hatırlatıcısı: ${debtToSave.title}`, `Test bildirim: 15 saniye içinde`, new Date(Date.now() + 15000)).then(() => {
-          // eslint-disable-next-line no-alert
-          alert('Test bildirimi planlandı: 15 saniye sonra.');
-        }).catch(() => {
-          // ignore
-        });
-      } catch (e) {}
-    }
+    // no debug/test notifications here — production scheduling handled by parent
     return;
   };
 
@@ -1623,10 +1621,7 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
           <FieldLabel>Ödeme Tarihi</FieldLabel>
           <input style={inputStyle as React.CSSProperties} value={dueDate} onChange={(e) => setDueDate(e.target.value)} type="date" />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input id="test_notif" type="checkbox" checked={testNotif} onChange={(e) => setTestNotif(e.target.checked)} />
-          <label htmlFor="test_notif" style={{ color: COLORS.textSecondary, fontSize: 13 }}>Test bildirimi: hemen gönder (15s)</label>
-        </div>
+        {/* debug/test notification UI removed */}
       </div>
       <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
         {existing && (
