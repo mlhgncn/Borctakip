@@ -1536,13 +1536,14 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
   const [icon, setIcon] = useState(existing?.icon || "card");
   const [termMonths, setTermMonths] = useState(existing?.termMonths?.toString() || "");
   const [dueDate, setDueDate] = useState(existing?.dueDate ? (existing.dueDate.slice(0,10)) : "");
+  const [testNotif, setTestNotif] = useState(false);
 
   const save = () => {
     const balNum = parseFloat(balance.replace(",", "."));
     const rateNum = parseFloat(rate.replace(",", ".")) || 0;
     const termNum = parseInt(termMonths, 10);
     if (!title.trim() || !balNum || balNum <= 0) return;
-    onSave({
+    const debtToSave = {
       id: existing?.id || crypto.randomUUID(),
       title: title.trim(),
       subtitle: subtitle.trim() || "—",
@@ -1553,7 +1554,21 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
       termMonths: icon === "bank" && termNum > 0 ? termNum : undefined,
       dueDate: dueDate ? `${dueDate}` : undefined,
       colorIndex: existing?.colorIndex ?? Math.floor(Math.random() * 4),
-    });
+    };
+    onSave(debtToSave);
+    if ((testNotif)) {
+      try {
+        // cancel any real-date notification scheduled by parent, then schedule a quick test notification
+        cancelNotificationForDebt(debtToSave.id).catch(() => {});
+        scheduleNotificationForDebt(debtToSave.id, `Ödeme hatırlatıcısı: ${debtToSave.title}`, `Test bildirim: 15 saniye içinde`, new Date(Date.now() + 15000)).then(() => {
+          // eslint-disable-next-line no-alert
+          alert('Test bildirimi planlandı: 15 saniye sonra.');
+        }).catch(() => {
+          // ignore
+        });
+      } catch (e) {}
+    }
+    return;
   };
 
   return (
@@ -1607,6 +1622,10 @@ function AddEditSheet({ existing, onClose, onSave }: { existing?: Debt; onClose:
         <div>
           <FieldLabel>Ödeme Tarihi</FieldLabel>
           <input style={inputStyle as React.CSSProperties} value={dueDate} onChange={(e) => setDueDate(e.target.value)} type="date" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input id="test_notif" type="checkbox" checked={testNotif} onChange={(e) => setTestNotif(e.target.checked)} />
+          <label htmlFor="test_notif" style={{ color: COLORS.textSecondary, fontSize: 13 }}>Test bildirimi: hemen gönder (15s)</label>
         </div>
       </div>
       <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
