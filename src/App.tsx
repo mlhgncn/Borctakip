@@ -5,7 +5,6 @@ import {
   Check, RotateCcw, Bell, Info, Sparkles, CalendarCheck,
 } from "lucide-react";
 import { initAdMob, showBanner, removeBanner, prepareRewarded, showRewarded, setAdPersonalization, showInterstitialWithFrequency } from "./admob";
-import { isAdsRemoved, startRemoveAdsPurchase } from "./iap";
 import { requestPermission as requestNotifPerm, scheduleNotificationForDebt, cancelNotificationForDebt } from "./notifications";
 
 const COLORS = {
@@ -265,7 +264,6 @@ export default function App() {
   const [lastConfirmedPaymentDate, setLastConfirmedPaymentDate] = useState<string | null>(() => loadFromStorage("bp_lastConfirmedPaymentDate", loadFromStorage("bp_lastPaidMonth", null)));
   const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>(() => loadFromStorage("bp_history", []));
   const [adsEnabled, setAdsEnabled] = useState<boolean>(() => loadFromStorage("bp_ads_enabled", true));
-  const [adsRemoved, setAdsRemoved] = useState<boolean>(() => isAdsRemoved());
   const [adPersonalization, setAdPersonalizationState] = useState<boolean>(() => loadFromStorage("bp_ad_personalization", true));
   const [consentOpen] = useState<boolean>(() => !loadFromStorage("bp_consent_seen", false));
   const [sheet, setSheet] = useState<any>(null);
@@ -284,7 +282,7 @@ export default function App() {
         try { await setAdPersonalization(loadFromStorage("bp_ad_personalization", true)); } catch (e) {}
         const bannerId = process.env.REACT_APP_ADMOB_BANNER_ID || "";
         const storedAdsEnabled = loadFromStorage("bp_ads_enabled", true);
-        if (bannerId && storedAdsEnabled && !isAdsRemoved()) await showBanner(bannerId);
+        if (bannerId && storedAdsEnabled) await showBanner(bannerId);
       } catch (e) {
         // ignore
       }
@@ -301,8 +299,8 @@ export default function App() {
     (async () => {
       try {
         const bannerId = process.env.REACT_APP_ADMOB_BANNER_ID || "";
-        if (adsEnabled && bannerId && !isAdsRemoved()) await showBanner(bannerId);
-        if (!adsEnabled || isAdsRemoved()) await removeBanner();
+        if (adsEnabled && bannerId) await showBanner(bannerId);
+        if (!adsEnabled) await removeBanner();
       } catch (e) {}
     })();
   }, [adsEnabled]);
@@ -433,27 +431,14 @@ export default function App() {
       await prepareRewarded(rewardedId);
       const shown = await showRewarded(rewardedId);
       if (!shown) {
-        alert('Reklam oynatılamadı. Lütfen daha sonra tekrar deneyin.');
+        alert('Reklam oynatılamadı veya tamamlanmadı. Limit artırılmadı.');
         return;
       }
-      setMaxDebtLimit(5);
-      setStreak((s) => s + 1);
-      setPaymentHistory((h) => [...h, { date: new Date().toISOString(), amount: 0, remainingAfter: debts.reduce((s, d) => s + d.balance, 0), description: 'Reklam ödülü ile limit açıldı' }]);
-      alert('Tebrikler! Ödül reklamı izlendi ve borç limiti 5’e yükseltildi.');
+      setMaxDebtLimit((prev) => prev + 1);
+      alert('Tebrikler! Borç ekleme limitin 1 arttı.');
     } catch (e) {
-      alert('Reklam yüklenirken bir sorun oluştu. Lütfen tekrar deneyin.');
+      alert('Reklam yüklenirken bir sorun oluştu. Limit artırılmadı.');
     }
-  };
-
-  const handleRemoveAds = async () => {
-    try {
-      const ok = await startRemoveAdsPurchase();
-      if (ok) {
-        setAdsEnabled(false);
-        setAdsRemoved(true);
-        alert('Reklamlar kaldırıldı (simülasyon). Gerçek cihazlarda IAP akışını tamamlayın.');
-      }
-    } catch (e) {}
   };
 
   const performPayment = async (amount?: number, opts?: { skip?: boolean; perDebtId?: string }): Promise<boolean> => {
@@ -522,7 +507,7 @@ export default function App() {
   };
 
   const handleAddDebt = () => {
-    if (!adsRemoved && debts.length >= maxDebtLimit) {
+    if (debts.length >= maxDebtLimit) {
       setSheet({ type: 'limit-info' });
       return;
     }
@@ -534,7 +519,7 @@ export default function App() {
     <PlanPage key="plan" {...{ debts, plan, strategy, capacity, hasDebts }} />,
     null,
     <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
-    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit, adsRemoved }} />,
+    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, maxDebtLimit }} />,
   ];
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
@@ -1333,12 +1318,10 @@ interface AyarlarPageProps {
   adPersonalization?: boolean;
   setAdPersonalizationState?: (b: boolean) => void;
   handleWatchRewardAd?: () => void;
-  handleRemoveAds?: () => void;
   maxDebtLimit: number;
-  adsRemoved: boolean;
 }
 
-function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit, adsRemoved }: AyarlarPageProps) {
+function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, maxDebtLimit }: AyarlarPageProps) {
   const [i, setI] = useState(income.toString());
   const [e, setE] = useState(expense.toString());
   const [notif, setNotif] = useState(true);
@@ -1386,24 +1369,25 @@ function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStra
         <ToggleRow icon={Bell} label="Ödeme hatırlatmaları" sub="Her ay ödeme zamanı geldiğinde bildirim al" value={notif} onChange={setNotif} />
         <ToggleRow icon={Info} label="Reklamları Göster" sub="Uygulamadaki reklamları aç/kapat" value={adsEnabled} onChange={(v: boolean) => setAdsEnabled(v)} />
         <ToggleRow icon={User} label="Reklam Kişiselleştirme" sub="Kişiselleştirilmiş reklamlar gösterilsin mi" value={!!adPersonalization} onChange={(v: boolean) => setAdPersonalizationState && setAdPersonalizationState(v)} />
-        <div style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ color: COLORS.textSecondary, fontSize: 13, lineHeight: 1.5 }}>
+            Mevcut borç ekleme limitin: {maxDebtLimit} borç. Her reklam izlediğinde limitin 1 artar.
+          </div>
           <button
             onClick={() => handleWatchRewardAd && handleWatchRewardAd()}
-            disabled={adsRemoved || maxDebtLimit >= 5}
             style={{
-              flex: 1,
-              padding: '10px',
-              borderRadius: 12,
-              border: `1px solid ${COLORS.stroke}`,
-              background: adsRemoved || maxDebtLimit >= 5 ? COLORS.cardAlt : 'transparent',
-              color: adsRemoved || maxDebtLimit >= 5 ? COLORS.textSecondary : COLORS.purple,
-              cursor: adsRemoved || maxDebtLimit >= 5 ? 'not-allowed' : 'pointer',
-              opacity: adsRemoved || maxDebtLimit >= 5 ? 0.6 : 1,
+              width: '100%',
+              padding: '14px',
+              borderRadius: 14,
+              border: 'none',
+              background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`,
+              color: '#fff',
+              fontWeight: 700,
+              cursor: 'pointer',
             }}
           >
-            {adsRemoved ? 'Reklamlar kaldırıldı — limit sınırsız' : maxDebtLimit >= 5 ? `Maksimum limite ulaşıldı (${maxDebtLimit}/5)` : 'Reklam İzle — Ödül Al'}
+            Reklam İzle, Borç Limitini +1 Artır
           </button>
-          <button onClick={() => handleRemoveAds && handleRemoveAds()} style={{ padding: '10px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: COLORS.purple, color: '#fff', cursor: 'pointer' }}>{adsRemoved ? 'Reklamlar Kaldırıldı' : 'Reklamları Kaldır'}</button>
         </div>
       </div>
 
