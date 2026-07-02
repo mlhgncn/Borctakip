@@ -260,7 +260,7 @@ export default function App() {
   const [expense, setExpense] = useState<number>(() => loadFromStorage("bp_expense", 18250));
   const [strategy, setStrategy] = useState<string>(() => loadFromStorage("bp_strategy", "avalanche"));
   const [streak, setStreak] = useState<number>(() => loadFromStorage("bp_streak", 0));
-  const [maxDebtLimit, setMaxDebtLimit] = useState<number>(() => loadFromStorage("bp_maxDebtLimit", 4));
+  const [maxDebtLimit, setMaxDebtLimit] = useState<number>(() => loadFromStorage("bp_maxDebtLimit", 2));
   const [lastConfirmedPaymentDate, setLastConfirmedPaymentDate] = useState<string | null>(() => loadFromStorage("bp_lastConfirmedPaymentDate", loadFromStorage("bp_lastPaidMonth", null)));
   const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>(() => loadFromStorage("bp_history", []));
   const [adsEnabled, setAdsEnabled] = useState<boolean>(() => loadFromStorage("bp_ads_enabled", true));
