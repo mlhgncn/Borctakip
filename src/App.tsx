@@ -549,8 +549,8 @@ export default function App() {
         .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
         .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
       `}</style>
-      <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", boxSizing: "border-box", paddingTop: "max(env(safe-area-inset-top, 14px), 14px)", paddingBottom: "env(safe-area-inset-bottom, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
-    <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', padding: `calc(16px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(64px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px))`, overscrollBehavior: "none", overscrollBehaviorY: 'none', animation: "fadeIn 0.25s ease" }} key={navIndex}>
+      <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", boxSizing: "border-box", paddingTop: "env(safe-area-inset-top, 6px)", paddingBottom: "env(safe-area-inset-bottom, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
+    <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', padding: `calc(8px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(64px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px))`, overscrollBehavior: "none", overscrollBehaviorY: 'none', animation: "fadeIn 0.25s ease" }} key={navIndex}>
           {pages[navIndex]}
         </div>
 
@@ -787,7 +787,7 @@ function HomePage(props: PageProps) {
 
 function Header({ streak }: { streak: number }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginTop: 6 }}>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginTop: 2 }}>
       <div>
         <h1 style={{ color: COLORS.textPrimary, fontSize: 24, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>Borç Kapatma Planlayıcısı</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
@@ -1140,7 +1140,7 @@ function Stat({ label, value, color }: { label: string; value: string | number; 
 
 function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div style={{ marginTop: 6 }}>
+    <div style={{ marginTop: 2 }}>
       <h1 style={{ color: COLORS.textPrimary, fontSize: 24, fontWeight: 800, margin: 0 }}>{title}</h1>
       <p style={{ color: COLORS.textSecondary, fontSize: 14, margin: "4px 0 0" }}>{subtitle}</p>
     </div>
