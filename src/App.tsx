@@ -971,19 +971,24 @@ function DebtList({ debts, priorityId, strategy, onEdit, onDelete }: { debts: De
               <div style={{ width: 44, height: 44, borderRadius: "50%", background: `${iconColor}2E`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <Icon size={20} color={iconColor} />
               </div>
-              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+
+              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.subtitle}</div>
+                <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.subtitle}</div>
               </div>
-              <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12, minWidth: 84 }}>
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0, marginLeft: 12, minWidth: 84 }}>
                 <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>{tl(d.balance)}</div>
-                <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 2 }}>%{d.rate.toFixed(2)}</div>
+                <div style={{ color: COLORS.textSecondary, fontSize: 12 }}>%{d.rate.toFixed(2)}</div>
+                {isPriority && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+                    <span style={{ background: `${COLORS.red}2E`, color: COLORS.red, fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>
+                      {strategy === "snowball" ? "Sırada" : "En Yüksek Faiz"}
+                    </span>
+                  </div>
+                )}
               </div>
-              {isPriority && (
-                <span style={{ background: `${COLORS.red}2E`, color: COLORS.red, fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>
-                  {strategy === "snowball" ? "Sırada" : "En Yüksek Faiz"}
-                </span>
-              )}
+
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button onClick={(e) => { e.stopPropagation(); onDelete(d.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: COLORS.textSecondary }} aria-label="Sil">
                   <Trash2 size={16} />
