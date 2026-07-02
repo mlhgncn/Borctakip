@@ -456,18 +456,18 @@ export default function App() {
     } catch (e) {}
   };
 
-  const performPayment = (amount?: number, opts?: { skip?: boolean; perDebtId?: string }) => {
-    if (paymentBeingProcessed) return;
+  const performPayment = async (amount?: number, opts?: { skip?: boolean; perDebtId?: string }): Promise<boolean> => {
+    if (paymentBeingProcessed) return false;
     setPaymentBeingProcessed(true);
     try {
       if (opts?.skip) {
         setSheet(null);
-        return;
+        return true;
       }
 
       if (debts.every((d) => d.balance <= 0)) {
         setSheet(null);
-        return;
+        return true;
       }
 
       const payAmount = typeof amount === "number" ? amount : capacity;
@@ -491,7 +491,7 @@ export default function App() {
           setCelebration(stillRemaining ? { type: "debt-cleared", debt: cleared } : { type: "all-clear" });
         }
         setSheet(null);
-        return;
+        return true;
       }
 
       const { next, clearedIds, paid } = applyOneMonth(debts, payAmount, strategy);
@@ -504,8 +504,10 @@ export default function App() {
         setCelebration(stillRemaining ? { type: "debt-cleared", debt: cleared } : { type: "all-clear" });
       }
       setSheet(null);
+      return true;
     } catch (e) {
       // ignore
+      return false;
     } finally {
       setPaymentBeingProcessed(false);
     }
@@ -709,7 +711,7 @@ export default function App() {
                 );
               })()}
 
-              <button onClick={() => {
+              <button onClick={async () => {
                 const selectedDebt = debts.find((d) => d.id === sheet.selectedDebtId);
                 if (!selectedDebt) {
                   alert('Önce bir borç seçin.');
@@ -722,8 +724,8 @@ export default function App() {
                     alert('Bu borç için ödenecek tutar hesaplanamadı.');
                     return;
                   }
-                  performPayment(installment, { perDebtId: selectedDebt.id });
-                  setCelebration({ type: 'payment-success', debt: selectedDebt });
+                  const ok = await performPayment(installment, { perDebtId: selectedDebt.id });
+                  if (ok) setCelebration({ type: 'payment-success', debt: selectedDebt });
                   setSheet(null);
                   return;
                 }
@@ -734,8 +736,8 @@ export default function App() {
                   alert('Lütfen geçerli bir ödeme tutarı girin.');
                   return;
                 }
-                performPayment(amount, { perDebtId: selectedDebt.id });
-                setCelebration({ type: 'payment-success', debt: selectedDebt });
+                const ok = await performPayment(amount, { perDebtId: selectedDebt.id });
+                if (ok) setCelebration({ type: 'payment-success', debt: selectedDebt });
                 setSheet(null);
               }} style={{ width: '100%', padding: '16px', borderRadius: 18, border: 'none', background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.blue})`, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', boxShadow: '0 18px 36px rgba(124,92,252,0.18)' }}>
                 Ödemeyi Tamamla
