@@ -1367,7 +1367,6 @@ function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStra
       <SectionLabel>Tercihler</SectionLabel>
       <div style={{ background: COLORS.card, border: `1px solid ${COLORS.stroke}`, borderRadius: 20, overflow: "hidden" }}>
         <ToggleRow icon={Bell} label="Ödeme hatırlatmaları" sub="Her ay ödeme zamanı geldiğinde bildirim al" value={notif} onChange={setNotif} />
-        <ToggleRow icon={Info} label="Reklamları Göster" sub="Uygulamadaki reklamları aç/kapat" value={adsEnabled} onChange={(v: boolean) => setAdsEnabled(v)} />
         <ToggleRow icon={User} label="Reklam Kişiselleştirme" sub="Kişiselleştirilmiş reklamlar gösterilsin mi" value={!!adPersonalization} onChange={(v: boolean) => setAdPersonalizationState && setAdPersonalizationState(v)} />
         <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ color: COLORS.textSecondary, fontSize: 13, lineHeight: 1.5 }}>
