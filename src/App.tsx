@@ -545,9 +545,12 @@ export default function App() {
         * { box-sizing: border-box; }
         button { font-family: inherit; }
         input[type=range] { -webkit-appearance: none; }
+        /* Hide native scrollbars for scrollable containers */
+        .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
       `}</style>
       <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", boxSizing: "border-box", paddingTop: "max(env(safe-area-inset-top, 14px), 14px)", paddingBottom: "env(safe-area-inset-bottom, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
-    <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', padding: "16px 0 0", paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(64px + env(safe-area-inset-bottom, 0px))", overscrollBehavior: "none", overscrollBehaviorY: 'none', animation: "fadeIn 0.25s ease" }} key={navIndex}>
+    <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', padding: "16px 0 0", paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(64px + env(safe-area-inset-bottom, 0px))", overscrollBehavior: "none", overscrollBehaviorY: 'none', animation: "fadeIn 0.25s ease" }} key={navIndex}>
           {pages[navIndex]}
         </div>
 
