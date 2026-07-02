@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Calendar, Wallet, CalendarClock, Plus, CreditCard, Landmark,
   ShoppingBag, X, Trash2, Home, ListChecks, PieChart, User, Target, Flame, PartyPopper, TrendingDown,
   Check, RotateCcw, Bell, Info, Sparkles, CalendarCheck,
 } from "lucide-react";
-import { initAdMob, showBanner, removeBanner, prepareRewarded, showRewarded, setAdPersonalization } from "./admob";
+import { initAdMob, showBanner, removeBanner, prepareRewarded, showRewarded, setAdPersonalization, showInterstitialWithFrequency } from "./admob";
 import { isAdsRemoved, startRemoveAdsPurchase } from "./iap";
 import { requestPermission as requestNotifPerm, scheduleNotificationForDebt, cancelNotificationForDebt } from "./notifications";
 
@@ -83,7 +83,6 @@ interface PageProps {
   capacity: number;
   alreadyPaidThisMonth: boolean;
   onConfirm: () => void;
-  onSkip: () => void;
   onPartial: () => void;
   onAdd: () => void;
   streak: number;
@@ -266,12 +265,15 @@ export default function App() {
   const [lastConfirmedPaymentDate, setLastConfirmedPaymentDate] = useState<string | null>(() => loadFromStorage("bp_lastConfirmedPaymentDate", loadFromStorage("bp_lastPaidMonth", null)));
   const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>(() => loadFromStorage("bp_history", []));
   const [adsEnabled, setAdsEnabled] = useState<boolean>(() => loadFromStorage("bp_ads_enabled", true));
+  const [adsRemoved, setAdsRemoved] = useState<boolean>(() => isAdsRemoved());
   const [adPersonalization, setAdPersonalizationState] = useState<boolean>(() => loadFromStorage("bp_ad_personalization", true));
   const [consentOpen] = useState<boolean>(() => !loadFromStorage("bp_consent_seen", false));
   const [sheet, setSheet] = useState<any>(null);
   const [paymentBeingProcessed, setPaymentBeingProcessed] = useState(false);
   const [navIndex, setNavIndex] = useState<number>(0);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
+  const actionCountRef = useRef(0);
+  const interstitialAdUnitId = process.env.REACT_APP_ADMOB_INTERSTITIAL_ID || "";
 
   // Initialize AdMob on app start (native platforms only)
   useEffect(() => {
@@ -346,6 +348,50 @@ export default function App() {
   const progressRatio = totalOriginal > 0 ? Math.max(0, Math.min(1, 1 - totalBalance / totalOriginal)) : 0;
   const capacity = Math.max(0, income - expense);
 
+  const showPostPaymentInterstitial = useCallback(async (): Promise<boolean> => {
+    if (!adsEnabled || !interstitialAdUnitId) return false;
+    return await showInterstitialWithFrequency(interstitialAdUnitId, "post_payment", 180, 1);
+  }, [adsEnabled, interstitialAdUnitId]);
+
+  const showTimedInterstitial = useCallback(async (): Promise<boolean> => {
+    if (!adsEnabled || !interstitialAdUnitId) return false;
+    return await showInterstitialWithFrequency(interstitialAdUnitId, "timed", 300, 2);
+  }, [adsEnabled, interstitialAdUnitId]);
+
+  const handleInteractionForAd = useCallback(() => {
+    actionCountRef.current += 1;
+    if (actionCountRef.current >= 5) {
+      actionCountRef.current = 0;
+      showTimedInterstitial().catch(() => {});
+    }
+  }, [showTimedInterstitial]);
+
+  useEffect(() => {
+    if (!adsEnabled || !interstitialAdUnitId) return;
+    const interval = window.setInterval(() => {
+      if (sheet || celebration || document.hidden) return;
+      showTimedInterstitial().catch(() => {});
+    }, 4 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [adsEnabled, interstitialAdUnitId, sheet, celebration, showTimedInterstitial]);
+
+  const handleNavTap = (i: number) => {
+    if (i === 2) {
+      handleAddDebt();
+      return;
+    }
+    setNavIndex(i);
+    handleInteractionForAd();
+  };
+
+  const handleCelebrationClose = async () => {
+    const isPaymentSuccess = celebration?.type === "payment-success";
+    setCelebration(null);
+    if (!isPaymentSuccess) return;
+    await showPostPaymentInterstitial();
+    setNavIndex(0);
+  };
+
   const planAvalanche = useMemo(() => simulateDetailed(debts, capacity, "avalanche"), [debts, capacity]);
   const planSnowball = useMemo(() => simulateDetailed(debts, capacity, "snowball"), [debts, capacity]);
   const plan = strategy === "snowball" ? planSnowball : planAvalanche;
@@ -404,6 +450,7 @@ export default function App() {
       const ok = await startRemoveAdsPurchase();
       if (ok) {
         setAdsEnabled(false);
+        setAdsRemoved(true);
         alert('Reklamlar kaldırıldı (simülasyon). Gerçek cihazlarda IAP akışını tamamlayın.');
       }
     } catch (e) {}
@@ -473,7 +520,7 @@ export default function App() {
   };
 
   const handleAddDebt = () => {
-    if (debts.length >= maxDebtLimit) {
+    if (!adsRemoved && debts.length >= maxDebtLimit) {
       setSheet({ type: 'limit-info' });
       return;
     }
@@ -481,11 +528,11 @@ export default function App() {
   };
 
   const pages = [
-    <HomePage key="home" {...{ hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, onConfirm: () => setSheet({ type: 'monthlyPayment', selectedDebtId: suggestDebtForStrategy(debts, strategy)?.id, customAmount: '' }), onSkip: () => performPayment(undefined, { skip: true }), onPartial: () => { if (totalBalance <= 0) return; setSheet({ type: 'pay', mode: 'partial', debtId: suggestDebtForStrategy(debts, strategy)?.id }); }, onAdd: handleAddDebt, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId: lowestBalanceDebt?.id, paymentHistory, setSheet, deleteDebt, income, expense, hasOutstandingDebts: totalBalance > 0 }} />,
+    <HomePage key="home" {...{ hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, onConfirm: () => setSheet({ type: 'monthlyPayment', selectedDebtId: suggestDebtForStrategy(debts, strategy)?.id, customAmount: '' }), onPartial: () => { if (totalBalance <= 0) return; setSheet({ type: 'pay', mode: 'partial', debtId: suggestDebtForStrategy(debts, strategy)?.id }); }, onAdd: handleAddDebt, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId: lowestBalanceDebt?.id, paymentHistory, setSheet, deleteDebt, income, expense, hasOutstandingDebts: totalBalance > 0 }} />,
     <PlanPage key="plan" {...{ debts, plan, strategy, capacity, hasDebts }} />,
     null,
     <AnalizPage key="analiz" {...{ debts, totalBalance, totalOriginal, progressRatio, plan, paymentHistory, streak, hasDebts }} />,
-    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit }} />,
+    <AyarlarPage key="ayarlar" {...{ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit, adsRemoved }} />,
   ];
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
@@ -500,11 +547,11 @@ export default function App() {
         input[type=range] { -webkit-appearance: none; }
       `}</style>
       <div style={{ width: "100%", maxWidth: 460, minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", margin: "0 auto", boxSizing: "border-box", paddingTop: "max(env(safe-area-inset-top, 14px), 14px)", paddingBottom: "max(env(safe-area-inset-bottom, 10px), 10px)", paddingLeft: "max(env(safe-area-inset-left, 12px), 12px)", paddingRight: "max(env(safe-area-inset-right, 12px), 12px)" }}>
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 14px 84px", paddingTop: "calc(24px + env(safe-area-inset-top, 0px))", animation: "fadeIn 0.25s ease" }} key={navIndex}>
+<div style={{ flex: 1, overflowY: "auto", padding: "16px 14px 0", paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(78px + env(safe-area-inset-bottom, 10px))", overscrollBehavior: "contain", animation: "fadeIn 0.25s ease" }} key={navIndex}>
           {pages[navIndex]}
         </div>
 
-        <BottomNav index={navIndex} onTap={(i: number) => (i === 2 ? handleAddDebt() : setNavIndex(i))} />
+        <BottomNav index={navIndex} onTap={handleNavTap} />
 
         {(sheet?.type === "add" || sheet?.type === "edit") && (
           <AddEditSheet existing={sheet.debt} onClose={() => setSheet(null)} onSave={(d: Debt) => { upsertDebt(d); if (d.dueDate) { try { scheduleNotificationForDebt(d.id, `Ödeme hatırlatıcısı: ${d.title}`, `Son ödeme tarihi: ${d.dueDate}`, new Date(d.dueDate)); } catch (e) {} } setSheet(null); }} />
@@ -693,7 +740,7 @@ export default function App() {
             </div>
           </SheetWrapper>
         )}
-        {celebration && <CelebrationModal data={celebration} onClose={() => setCelebration(null)} />}
+        {celebration && <CelebrationModal data={celebration} onClose={handleCelebrationClose} />}
       </div>
     </div>
   );
@@ -703,7 +750,7 @@ export default function App() {
 // HOME PAGE
 // =============================================================================
 function HomePage(props: PageProps) {
-  const { hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, onConfirm, onSkip, onPartial, onAdd, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId, paymentHistory, setSheet, deleteDebt, income, expense } = props;
+  const { hasDebts, debts, totalBalance, plan, progressRatio, capacity, alreadyPaidThisMonth, onConfirm, onPartial, onAdd, streak, strategy, setStrategy, highestRateDebt, lowestBalanceDebt, interestDelta, lowestBalanceId, paymentHistory, setSheet, deleteDebt, income, expense } = props;
 
   return (
     <>
@@ -713,7 +760,7 @@ function HomePage(props: PageProps) {
       ) : (
         <>
           <SummaryCard totalBalance={totalBalance} plan={plan} progressRatio={progressRatio} />
-          <PaymentCTA capacity={capacity} alreadyPaid={alreadyPaidThisMonth} onConfirm={onConfirm} onSkip={onSkip} onPartial={onPartial} streak={streak} hasOutstandingDebts={totalBalance > 0} />
+          <PaymentCTA capacity={capacity} alreadyPaid={alreadyPaidThisMonth} onConfirm={onConfirm} onPartial={onPartial} streak={streak} hasOutstandingDebts={totalBalance > 0} />
           <StrategyCard strategy={strategy} setStrategy={setStrategy} highestRateDebt={highestRateDebt} lowestBalanceDebt={lowestBalanceDebt} interestDelta={interestDelta} />
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "24px 0 10px" }}>
@@ -822,7 +869,7 @@ function InfoRow({ icon: Icon, label, value, color }: { icon: React.FC<any>; lab
   );
 }
 
-function PaymentCTA({ capacity, alreadyPaid, onConfirm, onSkip, onPartial, streak, hasOutstandingDebts }: { capacity: number; alreadyPaid: boolean; onConfirm: () => void; onSkip: () => void; onPartial: () => void; streak: number; hasOutstandingDebts: boolean }) {
+function PaymentCTA({ capacity, alreadyPaid, onConfirm, onPartial, streak, hasOutstandingDebts }: { capacity: number; alreadyPaid: boolean; onConfirm: () => void; onPartial: () => void; streak: number; hasOutstandingDebts: boolean }) {
   if (!hasOutstandingDebts) {
     return (
       <div style={{ marginTop: 14, background: `${COLORS.green}14`, border: `1px solid ${COLORS.green}33`, borderRadius: 20, padding: 18, fontSize: 13, color: COLORS.textSecondary }}>
@@ -855,14 +902,11 @@ function PaymentCTA({ capacity, alreadyPaid, onConfirm, onSkip, onPartial, strea
           <span style={{ color: COLORS.textPrimary, fontWeight: 700 }}>{tl(capacity)}</span>
         </div>
       )}
-      <div style={{ display: "flex", gap: 10 }}>
-        <button onClick={onPartial} style={{ flex: 1, padding: "12px", borderRadius: 16, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
+      {!alreadyPaid && (
+        <button onClick={onPartial} style={{ width: "100%", padding: "12px", borderRadius: 16, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.textSecondary, cursor: "pointer" }}>
           Kısmi Öde
         </button>
-        <button onClick={onSkip} style={{ flex: 1, padding: "12px", borderRadius: 16, border: `1px solid ${COLORS.stroke}`, background: "transparent", color: COLORS.red, cursor: "pointer" }}>
-          Atla
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -961,26 +1005,28 @@ function CapacityCard({ capacity, income, expense }: { capacity: number; income:
   const r = 60;
   const c = Math.PI * r;
   return (
-    <div style={{ flex: 1, background: COLORS.card, border: `1px solid ${COLORS.stroke}`, borderRadius: 20, padding: 16, height: 280, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, background: COLORS.card, border: `1px solid ${COLORS.stroke}`, borderRadius: 20, padding: 16, display: "flex", flexDirection: "column" }}>
       <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 13 }}>Ödeme Kapasitem</span>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-        <svg width="150" height="90" viewBox="0 0 150 90">
-          <defs>
-            <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor={COLORS.purple} />
-              <stop offset="100%" stopColor={COLORS.blue} />
-            </linearGradient>
-          </defs>
-          <path d={`M 15 85 A ${r} ${r} 0 0 1 135 85`} fill="none" stroke={COLORS.stroke} strokeWidth="14" strokeLinecap="round" />
-          <path d={`M 15 85 A ${r} ${r} 0 0 1 135 85`} fill="none" stroke="url(#arcGrad)" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${c * ratio} ${c}`} style={{ transition: "stroke-dasharray 0.6s ease" }} />
-        </svg>
-        <div style={{ position: "absolute", top: 14, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", lineHeight: 1.1 }}>
-          <span style={{ color: COLORS.textSecondary, fontSize: 11 }}>Kullanılabilir</span>
-          <span style={{ color: COLORS.textPrimary, fontSize: 17, fontWeight: 800 }}>{tl(capacity)}</span>
-          <span style={{ color: COLORS.textSecondary, fontSize: 11 }}>Aylık</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16, alignItems: "center" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: COLORS.textSecondary, fontSize: 11, marginBottom: 4 }}>Kullanılabilir</div>
+          <div style={{ color: COLORS.textPrimary, fontSize: 24, fontWeight: 800 }}>{tl(capacity)}</div>
+          <div style={{ color: COLORS.textSecondary, fontSize: 11, marginTop: 6 }}>Aylık</div>
+        </div>
+        <div style={{ width: "100%", maxWidth: 260 }}>
+          <svg width="100%" height="90" viewBox="0 0 150 90" style={{ display: "block", margin: "0 auto" }}>
+            <defs>
+              <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor={COLORS.purple} />
+                <stop offset="100%" stopColor={COLORS.blue} />
+              </linearGradient>
+            </defs>
+            <path d={`M 15 85 A ${r} ${r} 0 0 1 135 85`} fill="none" stroke={COLORS.stroke} strokeWidth="14" strokeLinecap="round" />
+            <path d={`M 15 85 A ${r} ${r} 0 0 1 135 85`} fill="none" stroke="url(#arcGrad)" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${c * ratio} ${c}`} style={{ transition: "stroke-dasharray 0.6s ease" }} />
+          </svg>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 6, fontSize: 11, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, fontSize: 11, flexWrap: "wrap", marginTop: 18 }}>
         <span style={{ color: COLORS.green, fontWeight: 600 }}>Gelir: {tl(income)}</span>
         <span style={{ color: COLORS.textSecondary }}>•</span>
         <span style={{ color: COLORS.red, fontWeight: 600 }}>Gider: {tl(expense)}</span>
@@ -1279,9 +1325,10 @@ interface AyarlarPageProps {
   handleWatchRewardAd?: () => void;
   handleRemoveAds?: () => void;
   maxDebtLimit: number;
+  adsRemoved: boolean;
 }
 
-function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit }: AyarlarPageProps) {
+function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStrategy, resetAllData, streak, debts, adsEnabled, setAdsEnabled, adPersonalization, setAdPersonalizationState, handleWatchRewardAd, handleRemoveAds, maxDebtLimit, adsRemoved }: AyarlarPageProps) {
   const [i, setI] = useState(income.toString());
   const [e, setE] = useState(expense.toString());
   const [notif, setNotif] = useState(true);
@@ -1332,21 +1379,21 @@ function AyarlarPage({ income, expense, setIncome, setExpense, strategy, setStra
         <div style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => handleWatchRewardAd && handleWatchRewardAd()}
-            disabled={maxDebtLimit >= 5}
+            disabled={adsRemoved || maxDebtLimit >= 5}
             style={{
               flex: 1,
               padding: '10px',
               borderRadius: 12,
               border: `1px solid ${COLORS.stroke}`,
-              background: maxDebtLimit >= 5 ? COLORS.cardAlt : 'transparent',
-              color: maxDebtLimit >= 5 ? COLORS.textSecondary : COLORS.purple,
-              cursor: maxDebtLimit >= 5 ? 'not-allowed' : 'pointer',
-              opacity: maxDebtLimit >= 5 ? 0.6 : 1,
+              background: adsRemoved || maxDebtLimit >= 5 ? COLORS.cardAlt : 'transparent',
+              color: adsRemoved || maxDebtLimit >= 5 ? COLORS.textSecondary : COLORS.purple,
+              cursor: adsRemoved || maxDebtLimit >= 5 ? 'not-allowed' : 'pointer',
+              opacity: adsRemoved || maxDebtLimit >= 5 ? 0.6 : 1,
             }}
           >
-            {maxDebtLimit >= 5 ? `Maksimum limite ulaşıldı (${maxDebtLimit}/5)` : 'Reklam İzle — Ödül Al'}
+            {adsRemoved ? 'Reklamlar kaldırıldı — limit sınırsız' : maxDebtLimit >= 5 ? `Maksimum limite ulaşıldı (${maxDebtLimit}/5)` : 'Reklam İzle — Ödül Al'}
           </button>
-          <button onClick={() => handleRemoveAds && handleRemoveAds()} style={{ padding: '10px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: COLORS.purple, color: '#fff', cursor: 'pointer' }}>{isAdsRemoved() ? 'Reklamlar Kaldırıldı' : 'Reklamları Kaldır'}</button>
+          <button onClick={() => handleRemoveAds && handleRemoveAds()} style={{ padding: '10px', borderRadius: 12, border: `1px solid ${COLORS.stroke}`, background: COLORS.purple, color: '#fff', cursor: 'pointer' }}>{adsRemoved ? 'Reklamlar Kaldırıldı' : 'Reklamları Kaldır'}</button>
         </div>
       </div>
 
@@ -1418,23 +1465,27 @@ function BottomNav({ index, onTap }: { index: number; onTap: (i: number) => void
     { icon: User, label: "Ayarlar" },
   ];
   return (
-    <div style={{ position: "sticky", bottom: 0, background: COLORS.card, borderTop: `1px solid ${COLORS.stroke}`, display: "flex", justifyContent: "space-around", alignItems: "center", padding: "10px 0", paddingBottom: "calc(10px + env(safe-area-inset-bottom, 10px))" }}>
+    <div style={{ position: "sticky", bottom: 0, left: 0, right: 0, width: "100%", background: COLORS.card, borderTop: `1px solid ${COLORS.stroke}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px max(env(safe-area-inset-left, 12px), 12px) calc(10px + env(safe-area-inset-bottom, 10px)) max(env(safe-area-inset-right, 12px), 12px)" }}>
       {items.map((item, i) => {
         if (i === 2) {
           return (
-            <button key={i} onClick={() => onTap(i)} style={{ width: 52, height: 52, borderRadius: "50%", background: COLORS.purple, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-              <Plus color="#fff" size={22} />
-            </button>
+            <div key={i} style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+              <button onClick={() => onTap(i)} style={{ width: 52, height: 52, borderRadius: "50%", background: COLORS.purple, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                <Plus color="#fff" size={22} />
+              </button>
+            </div>
           );
         }
         const selected = index === i;
         const color = selected ? COLORS.purple : COLORS.textSecondary;
         const Icon = item.icon;
         return (
-          <button key={i} onClick={() => onTap(i)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-            <Icon size={22} color={color} />
-            <span style={{ color, fontSize: 10 }}>{item.label}</span>
-          </button>
+          <div key={i} style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+            <button onClick={() => onTap(i)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "8px 0", minWidth: 0, color }}>
+              <Icon size={22} color={color} />
+              <span style={{ color, fontSize: 10, lineHeight: 1 }}>{item.label}</span>
+            </button>
+          </div>
         );
       })}
     </div>
