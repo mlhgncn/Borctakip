@@ -546,8 +546,8 @@ export default function App() {
         button { font-family: inherit; }
         input[type=range] { -webkit-appearance: none; }
       `}</style>
-      <div style={{ width: "100%", maxWidth: 460, minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", margin: "0 auto", boxSizing: "border-box", paddingTop: "max(env(safe-area-inset-top, 14px), 14px)", paddingBottom: "max(env(safe-area-inset-bottom, 10px), 10px)", paddingLeft: "max(env(safe-area-inset-left, 12px), 12px)", paddingRight: "max(env(safe-area-inset-right, 12px), 12px)" }}>
-<div style={{ flex: 1, overflowY: "auto", padding: "16px 14px 0", paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(78px + env(safe-area-inset-bottom, 10px))", overscrollBehavior: "contain", animation: "fadeIn 0.25s ease" }} key={navIndex}>
+      <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", boxSizing: "border-box", paddingTop: "max(env(safe-area-inset-top, 14px), 14px)", paddingBottom: "env(safe-area-inset-bottom, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: "16px 0 0", paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(64px + env(safe-area-inset-bottom, 0px))", overscrollBehavior: "contain", animation: "fadeIn 0.25s ease" }} key={navIndex}>
           {pages[navIndex]}
         </div>
 
@@ -1465,7 +1465,7 @@ function BottomNav({ index, onTap }: { index: number; onTap: (i: number) => void
     { icon: User, label: "Ayarlar" },
   ];
   return (
-    <div style={{ position: "sticky", bottom: 0, left: 0, right: 0, width: "100%", background: COLORS.card, borderTop: `1px solid ${COLORS.stroke}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px max(env(safe-area-inset-left, 12px), 12px) calc(10px + env(safe-area-inset-bottom, 10px)) max(env(safe-area-inset-right, 12px), 12px)" }}>
+    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, width: "100%", zIndex: 30, background: COLORS.card, borderTop: `1px solid ${COLORS.stroke}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px env(safe-area-inset-left, 0px) calc(10px + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-right, 0px)" }}>
       {items.map((item, i) => {
         if (i === 2) {
           return (
